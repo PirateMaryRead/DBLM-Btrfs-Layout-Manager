@@ -14,6 +14,7 @@ from ui.screens.plan import PlanScreen
 from ui.screens.rollback import RollbackScreen
 from ui.screens.snapper import SnapperScreen
 from ui.screens.subvolumes import SubvolumeScreen
+from ui.widgets.summary_box import SummaryBox
 
 
 MENU_ITEMS = [
@@ -40,29 +41,6 @@ SCREEN_CLASSES = {
     "Revert": RollbackScreen,
     "Backups": BackupsScreen,
 }
-
-
-class SummaryBox(Static):
-    """Top summary box shown on the main shell."""
-
-    DEFAULT_TEXT = """
-[bold]DBLM — Btrfs Layout Manager[/bold]
-Interactive TUI for auditing and managing Btrfs layouts on existing Linux installations.
-
-Use the left menu to open:
-- Dashboard
-- Dependencies
-- Subvolumes
-- Snapper
-- Boot
-- Plan
-- Apply
-- Revert
-- Backups
-""".strip()
-
-    def on_mount(self) -> None:
-        self.update(self.DEFAULT_TEXT)
 
 
 class PlaceholderPanel(Static):
@@ -137,7 +115,7 @@ class DBLMApp(App[None]):
 
     def action_refresh_summary(self) -> None:
         summary = self.query_one("#summary-box", SummaryBox)
-        summary.update(SummaryBox.DEFAULT_TEXT)
+        summary.refresh_summary()
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         if event.list_view.id != "menu":
@@ -152,12 +130,7 @@ class DBLMApp(App[None]):
 
     def watch_selected_section(self, section: str) -> None:
         summary = self.query_one("#summary-box", SummaryBox)
-        summary.update(
-            "[bold]DBLM — Btrfs Layout Manager[/bold]\n"
-            f"Current section: {section}\n\n"
-            "Press Enter to open the selected section.\n"
-            "Press Q to quit."
-        )
+        summary.refresh_summary()
 
 
 def main() -> None:
