@@ -1,26 +1,18 @@
 from __future__ import annotations
 
-import logging
-from contextlib import contextmanager
-from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
 import json
-from pathlib import Path
 import shutil
 import tempfile
 import uuid
+from contextlib import contextmanager
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Iterator, Literal
 
 
-logger = logging.getLogger(__name__)
-
-APP_DIR_NAME = "dblm"
 DEFAULT_STATE_FILE = Path("data/state.json")
-DEFAULT_LOG_DIR = Path("data/logs")
 
-# FIX: typed literals for status fields replace bare strings,
-# giving static type checkers (mypy/pyright) the ability to catch
-# typos and invalid transitions at analysis time rather than at runtime.
 ActionStatus = Literal["pending", "success", "skipped", "failed"]
 RunStatus = Literal["planned", "running", "success", "failed", "reverted"]
 
@@ -80,7 +72,6 @@ class ActionRecord:
     reverted: bool = False
     backup_id: str | None = None
     fstab_changes: list[FstabChange] = field(default_factory=list)
-    # FIX: was `str`, now typed as ActionStatus for static analysis safety.
     status: ActionStatus = "pending"
     message: str = ""
 
@@ -91,7 +82,6 @@ class RunRecord:
 
     run_id: str
     created_at: str
-    # FIX: was `str`, now typed as RunStatus for static analysis safety.
     status: RunStatus = "planned"
     actions: list[ActionRecord] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
@@ -126,31 +116,13 @@ class StateManager:
     def __init__(self, state_file: str | Path = DEFAULT_STATE_FILE) -> None:
         self.state_file = Path(state_file)
         self.state_file.parent.mkdir(parents=True, exist_ok=True)
-        # FIX: tracks whether we're inside a batch() context to suppress
-        # intermediate save() calls and flush only once at the end.
         self._batch_depth: int = 0
         self.state = self._load()
-
-    # ------------------------------------------------------------------ #
-    # Batch context manager                                                #
-    # ------------------------------------------------------------------ #
 
     @contextmanager
     def batch(self) -> Iterator[None]:
         """
-        Defer all save() calls until the outermost batch block exits.
-
-        Use this when multiple mutations must be applied together to avoid
-        rewriting the state file on every individual operation:
-
-            with state_manager.batch():
-                state_manager.add_action(run_id, action1)
-                state_manager.add_warning_to_run(run_id, warning)
-                state_manager.update_run_status(run_id, "success")
-            # state file is written exactly once here
-
-        Batches are re-entrant: nested batch() calls are safe and the file
-        is written only when the outermost block exits.
+        Defer save() calls until the outermost batch block exits.
         """
         self._batch_depth += 1
         try:
@@ -159,10 +131,6 @@ class StateManager:
             self._batch_depth -= 1
             if self._batch_depth == 0:
                 self.save()
-
-    # ------------------------------------------------------------------ #
-    # Persistence                                                          #
-    # ------------------------------------------------------------------ #
 
     def _load(self) -> AppState:
         if not self.state_file.exists():
@@ -175,9 +143,10 @@ class StateManager:
             BackupRecord(**item)
             for item in raw.get("backups", [])
         ]
+
         runs: list[RunRecord] = []
         for raw_run in raw.get("runs", []):
-            actions = []
+            actions: list[ActionRecord] = []
             for raw_action in raw_run.get("actions", []):
                 fstab_changes = [
                     FstabChange(**change)
@@ -200,25 +169,23 @@ class StateManager:
 
     def save(self) -> None:
         """
-        Persist the current state to disk.
-
-        No-op when called inside a batch() block — the flush is deferred
-        until the outermost batch context exits.
+        Persist the current state to disk atomically.
         """
-        # FIX: skip intermediate writes when inside a batch() context.
         if self._batch_depth > 0:
             return
+
         payload = asdict(self.state)
-        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=str(self.state_file.parent), delete=False) as handle:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=str(self.state_file.parent),
+            delete=False,
+        ) as handle:
             json.dump(payload, handle, indent=2, sort_keys=False)
             handle.flush()
             temp_name = handle.name
-        Path(temp_name).replace(self.state_file)
-        logger.debug("State saved to %s", self.state_file)
 
-    # ------------------------------------------------------------------ #
-    # Run management                                                       #
-    # ------------------------------------------------------------------ #
+        Path(temp_name).replace(self.state_file)
 
     def new_run(self, notes: str = "") -> RunRecord:
         run = RunRecord(
@@ -264,25 +231,6 @@ class StateManager:
                 return action
         return None
 
-    def remove_run(self, run_id: str) -> None:
-        self.state.runs = [run for run in self.state.runs if run.run_id != run_id]
-        self.save()
-
-    def get_latest_run(self) -> RunRecord | None:
-        if not self.state.runs:
-            return None
-        return self.state.runs[-1]
-
-    def require_run(self, run_id: str) -> RunRecord:
-        run = self.state.get_run(run_id)
-        if run is None:
-            raise KeyError(f"Unknown run id: {run_id}")
-        return run
-
-    # ------------------------------------------------------------------ #
-    # Backup management                                                    #
-    # ------------------------------------------------------------------ #
-
     def register_backup(
         self,
         *,
@@ -323,6 +271,12 @@ class StateManager:
             raise KeyError(f"Unknown backup id: {backup_id}")
         return backup
 
+    def require_run(self, run_id: str) -> RunRecord:
+        run = self.state.get_run(run_id)
+        if run is None:
+            raise KeyError(f"Unknown run id: {run_id}")
+        return run
+
     def mark_backup_restored(self, backup_id: str) -> None:
         backup = self.require_backup(backup_id)
         backup.restored_at = utc_now_iso()
@@ -343,11 +297,6 @@ class StateManager:
     ) -> Path:
         """
         Restore a recorded backup to its original path.
-
-        Behavior:
-        - If original path does not exist, restore directly.
-        - If original path exists and overwrite is False, raise FileExistsError.
-        - If original path exists and overwrite is True, remove it first.
         """
         backup = self.require_backup(backup_id)
         backup_path = Path(backup.backup_path)
@@ -400,16 +349,19 @@ class StateManager:
         Delete multiple backups in a single batch, writing state only once.
         """
         deleted_paths: list[Path] = []
-        # FIX: wrap in batch() so delete_backup()'s individual save() calls
-        # are suppressed and the file is written only once at the end.
         with self.batch():
             for backup_id in backup_ids:
                 deleted_paths.append(self.delete_backup(backup_id, missing_ok=missing_ok))
         return deleted_paths
 
-    # ------------------------------------------------------------------ #
-    # Summary                                                              #
-    # ------------------------------------------------------------------ #
+    def remove_run(self, run_id: str) -> None:
+        self.state.runs = [run for run in self.state.runs if run.run_id != run_id]
+        self.save()
+
+    def get_latest_run(self) -> RunRecord | None:
+        if not self.state.runs:
+            return None
+        return self.state.runs[-1]
 
     def summarize(self) -> dict[str, Any]:
         available_backups = [b for b in self.state.backups if not b.deleted]
@@ -424,10 +376,6 @@ class StateManager:
             "backups_deleted": len(deleted),
             "latest_run_id": self.state.runs[-1].run_id if self.state.runs else None,
         }
-
-    # ------------------------------------------------------------------ #
-    # Internal helpers                                                     #
-    # ------------------------------------------------------------------ #
 
     @staticmethod
     def _copy_path(source: Path, target: Path) -> None:
