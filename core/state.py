@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import shutil
+import tempfile
+import uuid
 from typing import Any, Iterator, Literal
 
 
@@ -24,8 +26,14 @@ RunStatus = Literal["planned", "running", "success", "failed", "reverted"]
 
 
 def utc_now_iso() -> str:
-    """Return the current UTC timestamp in ISO format."""
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    """Return the current UTC timestamp in ISO format with microseconds."""
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _unique_id(prefix: str) -> str:
+    """Return a collision-resistant identifier."""
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    return f"{prefix}-{stamp}-{uuid.uuid4().hex[:8]}"
 
 
 @dataclass(slots=True)
@@ -201,8 +209,11 @@ class StateManager:
         if self._batch_depth > 0:
             return
         payload = asdict(self.state)
-        with self.state_file.open("w", encoding="utf-8") as handle:
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=str(self.state_file.parent), delete=False) as handle:
             json.dump(payload, handle, indent=2, sort_keys=False)
+            handle.flush()
+            temp_name = handle.name
+        Path(temp_name).replace(self.state_file)
         logger.debug("State saved to %s", self.state_file)
 
     # ------------------------------------------------------------------ #
@@ -211,7 +222,7 @@ class StateManager:
 
     def new_run(self, notes: str = "") -> RunRecord:
         run = RunRecord(
-            run_id=f"run-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}",
+            run_id=_unique_id("run"),
             created_at=utc_now_iso(),
             notes=notes,
         )
@@ -282,7 +293,7 @@ class StateManager:
         notes: str = "",
     ) -> BackupRecord:
         backup = BackupRecord(
-            backup_id=f"backup-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}",
+            backup_id=_unique_id("backup"),
             original_path=original_path,
             backup_path=backup_path,
             created_at=utc_now_iso(),
