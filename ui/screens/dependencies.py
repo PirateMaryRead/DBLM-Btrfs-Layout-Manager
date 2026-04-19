@@ -1,3 +1,6 @@
+**Arquivo:** `ui/screens/dependencies.py`
+
+```python id="7okti3"
 from __future__ import annotations
 
 from pathlib import Path
@@ -23,7 +26,7 @@ class DependenciesScreen(DBLMScreen):
     BINDINGS = [("r", "refresh_dependencies", "Refresh")]
 
     def __init__(self, state_file: str | Path = "data/state.json") -> None:
-        super().__init__()
+        super().__init__(state_file=state_file)
         self.snapshot: EnvironmentSnapshot | None = None
         self.last_error: str | None = None
 
@@ -176,3 +179,4 @@ class DependenciesScreen(DBLMScreen):
             notes.append("- Dependency checks look good for the current environment.")
 
         return "\n".join(notes)
+```
