@@ -5,6 +5,16 @@ from textual.containers import Container, Horizontal, Vertical
 from textual.reactive import reactive
 from textual.widgets import Footer, Header, ListItem, ListView, Static
 
+from ui.screens.apply import ApplyScreen
+from ui.screens.backups import BackupsScreen
+from ui.screens.boot import BootScreen
+from ui.screens.dashboard import DashboardScreen
+from ui.screens.dependencies import DependenciesScreen
+from ui.screens.plan import PlanScreen
+from ui.screens.rollback import RollbackScreen
+from ui.screens.snapper import SnapperScreen
+from ui.screens.subvolumes import SubvolumeScreen
+
 
 MENU_ITEMS = [
     "Dashboard",
@@ -19,125 +29,50 @@ MENU_ITEMS = [
 ]
 
 
-SECTION_CONTENT = {
-    "Dashboard": """
-[bold]DBLM — Btrfs Layout Manager[/bold]
-
-Interactive TUI for auditing and managing Btrfs layouts on existing Linux installations.
-
-This screen will show:
-- root Btrfs status
-- /home topology and filesystem type
-- detected bootloader
-- Snapper status
-- dependency status
-- fstab warnings
-- pending rollback items
-- available backups
-""".strip(),
-    "Dependencies": """
-[bold]Dependencies[/bold]
-
-This section will manage:
-- required runtime tools
-- optional packages
-- apt-based installation checks
-- feature-specific package validation
-""".strip(),
-    "Subvolumes": """
-[bold]Subvolumes[/bold]
-
-This section will manage:
-- system subvolumes
-- optional /home handling when /home is Btrfs
-- profile-based selection
-- migration planning
-""".strip(),
-    "Snapper": """
-[bold]Snapper[/bold]
-
-This section will manage:
-- Snapper detection
-- configuration checks
-- layout compatibility
-- timeline and cleanup integration
-""".strip(),
-    "Boot": """
-[bold]Boot[/bold]
-
-This section will manage:
-- GRUB detection
-- grub-btrfs integration
-- systemd-boot integration
-- bootloader regeneration planning
-""".strip(),
-    "Plan": """
-[bold]Plan[/bold]
-
-This section will summarize:
-- packages to install
-- subvolumes to create
-- directories to migrate
-- fstab changes
-- backups to create
-- services to stop
-""".strip(),
-    "Apply": """
-[bold]Apply[/bold]
-
-This section will execute the current plan and show:
-- step-by-step progress
-- command output summaries
-- warnings
-- final validation results
-""".strip(),
-    "Revert": """
-[bold]Revert[/bold]
-
-This section will support:
-- restoring original directories
-- reverting fstab changes
-- removing created subvolumes
-- rolling back the last run
-""".strip(),
-    "Backups": """
-[bold]Backups[/bold]
-
-This section will support:
-- listing created backups
-- restoring a backup
-- deleting selected backups
-- cleaning up orphaned backups
-""".strip(),
+SCREEN_CLASSES = {
+    "Dashboard": DashboardScreen,
+    "Dependencies": DependenciesScreen,
+    "Subvolumes": SubvolumeScreen,
+    "Snapper": SnapperScreen,
+    "Boot": BootScreen,
+    "Plan": PlanScreen,
+    "Apply": ApplyScreen,
+    "Revert": RollbackScreen,
+    "Backups": BackupsScreen,
 }
 
 
 class SummaryBox(Static):
-    """Top summary placeholder. Will later be connected to system inspection."""
+    """Top summary box shown on the main shell."""
 
     DEFAULT_TEXT = """
-[bold]System summary[/bold]
-Root filesystem: unknown
-Root Btrfs: not scanned
-Home mount: not scanned
-Bootloader: not scanned
-Snapper: not scanned
-Dependencies: not scanned
-Pending backups: unknown
-Rollback items: unknown
+[bold]DBLM — Btrfs Layout Manager[/bold]
+Interactive TUI for auditing and managing Btrfs layouts on existing Linux installations.
+
+Use the left menu to open:
+- Dashboard
+- Dependencies
+- Subvolumes
+- Snapper
+- Boot
+- Plan
+- Apply
+- Revert
+- Backups
 """.strip()
 
     def on_mount(self) -> None:
         self.update(self.DEFAULT_TEXT)
 
 
-class ContentPanel(Static):
-    """Main content area for the selected section."""
+class PlaceholderPanel(Static):
+    """Fallback content area before a screen is opened."""
 
-    current_section: reactive[str] = reactive("Dashboard")
-
-    def watch_current_section(self, section: str) -> None:
-        self.update(SECTION_CONTENT.get(section, section))
+    def on_mount(self) -> None:
+        self.update(
+            "[bold]Welcome[/bold]\n\n"
+            "Select a section from the left menu and press Enter."
+        )
 
 
 class DBLMApp(App[None]):
@@ -173,14 +108,13 @@ class DBLMApp(App[None]):
 
                 with Container(id="content-area"):
                     yield Static("[bold]Content[/bold]", classes="panel-title")
-                    yield ContentPanel(id="content-panel")
+                    yield PlaceholderPanel(id="content-panel")
 
         yield Footer()
 
     def on_mount(self) -> None:
         menu = self.query_one("#menu", ListView)
         menu.index = 0
-        self._set_section("Dashboard")
 
     def action_cursor_up(self) -> None:
         menu = self.query_one("#menu", ListView)
@@ -199,10 +133,9 @@ class DBLMApp(App[None]):
     def action_open_section(self) -> None:
         menu = self.query_one("#menu", ListView)
         index = menu.index or 0
-        self._set_section(MENU_ITEMS[index])
+        self._open_section(MENU_ITEMS[index])
 
     def action_refresh_summary(self) -> None:
-        # Placeholder for the upcoming system scan integration.
         summary = self.query_one("#summary-box", SummaryBox)
         summary.update(SummaryBox.DEFAULT_TEXT)
 
@@ -210,14 +143,21 @@ class DBLMApp(App[None]):
         if event.list_view.id != "menu":
             return
         index = event.list_view.index or 0
-        self._set_section(MENU_ITEMS[index])
+        self._open_section(MENU_ITEMS[index])
+
+    def _open_section(self, section: str) -> None:
+        self.selected_section = section
+        screen_cls = SCREEN_CLASSES[section]
+        self.push_screen(screen_cls())
 
     def watch_selected_section(self, section: str) -> None:
-        content = self.query_one("#content-panel", ContentPanel)
-        content.current_section = section
-
-    def _set_section(self, section: str) -> None:
-        self.selected_section = section
+        summary = self.query_one("#summary-box", SummaryBox)
+        summary.update(
+            "[bold]DBLM — Btrfs Layout Manager[/bold]\n"
+            f"Current section: {section}\n\n"
+            "Press Enter to open the selected section.\n"
+            "Press Q to quit."
+        )
 
 
 def main() -> None:
