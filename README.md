@@ -1,4 +1,4 @@
-# DBLM Btrfs Layout Manager
+# DBLM — Btrfs Layout Manager
 
 An interactive text-based manager for Linux systems using **Btrfs**, focused on:
 
@@ -39,6 +39,9 @@ The application automatically detects:
 * the current layout pattern;
 * existing subvolumes;
 * relevant entries in `/etc/fstab`;
+* whether `/home` belongs to the same filesystem, is mounted separately, or is unavailable;
+* the filesystem type of `/home` when mounted separately;
+* whether a separate `/home` is also Btrfs;
 * whether Snapper is installed;
 * the active bootloader;
 * installed dependencies;
@@ -50,6 +53,7 @@ It can create and migrate subvolumes for directories such as:
 
 * `/.snapshots`
 * `/root`
+* `/home` when `/home` is on Btrfs or part of the same Btrfs filesystem
 * `/tmp`
 * `/var/log`
 * `/var/cache`
@@ -145,7 +149,7 @@ The application uses a **single-screen TUI** in the terminal with keyboard navig
 ## Project structure
 
 ```text
-btrfs-layout-manager/
+dblm-btrfs-layout-manager/
 ├─ app.py
 ├─ core/
 │  ├─ system.py
@@ -203,6 +207,8 @@ Responsible for:
 
 * detecting the environment;
 * identifying the Btrfs root;
+* detecting `/home` mount topology and filesystem type;
+* determining whether `/home` belongs to the same Btrfs filesystem or a separate one;
 * detecting the bootloader;
 * checking privileges;
 * wrapping external commands with logs and error handling.
@@ -214,6 +220,7 @@ Responsible for:
 * listing subvolumes;
 * creating subvolumes;
 * checking whether a path is already a subvolume;
+* working with more than one Btrfs context when `/home` is separate;
 * removing subvolumes safely;
 * mounting the top-level subvolume when needed.
 
@@ -297,6 +304,7 @@ Includes:
 Includes:
 
 * the minimal profile;
+* `/home` when it is on Btrfs or part of the same Btrfs filesystem;
 * `/var/cache`
 * `/var/tmp`
 
@@ -326,6 +334,7 @@ The app collects system information and presents:
 
 * the current layout;
 * existing subvolumes;
+* `/home` mount and filesystem status;
 * inconsistencies;
 * missing dependencies;
 * known risks.
@@ -453,6 +462,12 @@ Optional dependencies are only required when the corresponding feature is enable
 * an environment compatible with `apt` for automatic package installation;
 * an interactive terminal;
 * access to `fstab` and mountpoints.
+
+---
+
+## Name
+
+**DBLM — Btrfs Layout Manager**
 
 ---
 
