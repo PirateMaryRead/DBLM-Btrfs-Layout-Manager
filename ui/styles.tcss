@@ -1,0 +1,80 @@
+Screen {
+    layout: vertical;
+    background: $surface;
+    color: $text;
+}
+
+#app-shell {
+    layout: vertical;
+    height: 1fr;
+}
+
+#summary-box {
+    height: 9;
+    margin: 1 1 0 1;
+    padding: 1 2;
+    border: round $primary;
+    background: $panel;
+    content-align: left top;
+}
+
+#main-layout {
+    layout: horizontal;
+    height: 1fr;
+    margin: 1;
+}
+
+#sidebar {
+    width: 28;
+    min-width: 24;
+    max-width: 32;
+    border: round $accent;
+    background: $panel;
+    padding: 1;
+}
+
+#content-area {
+    width: 1fr;
+    border: round $primary;
+    background: $panel;
+    padding: 1;
+    margin-left: 1;
+}
+
+.panel-title {
+    height: auto;
+    margin: 0 0 1 0;
+    color: $text-muted;
+    text-style: bold;
+}
+
+#menu {
+    height: 1fr;
+    background: transparent;
+    border: none;
+}
+
+#menu > .list-view--highlight {
+    background: $boost;
+    color: $text;
+    text-style: bold;
+}
+
+#content-panel {
+    height: 1fr;
+    padding: 1 1 0 1;
+    overflow: auto;
+    content-align: left top;
+}
+
+Header {
+    dock: top;
+}
+
+Footer {
+    dock: bottom;
+}
+
+Static {
+    color: $text;
+}
