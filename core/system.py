@@ -208,35 +208,44 @@ def _parse_mount_options(options: str) -> tuple[str | None, str | None]:
     return subvol, subvolid
 
 
+def _parse_findmnt_pairs(stdout: str) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for token in shlex.split(stdout):
+        if "=" not in token:
+            continue
+        key, value = token.split("=", 1)
+        values[key] = value
+    return values
+
+
 def get_mount_context(mountpoint: str) -> FilesystemContext:
     """
     Inspect a mountpoint using findmnt.
 
+    Uses key-value output to avoid fragile whitespace parsing.
     Returns a best-effort FilesystemContext. Missing mountpoints are handled.
     """
     if not os.path.exists(mountpoint):
         return FilesystemContext(mountpoint=mountpoint, exists=False)
 
-    result = run_command(
-        [
-            "findmnt",
-            "-no",
-            "SOURCE,FSTYPE,OPTIONS,UUID,TARGET",
-            mountpoint,
-        ]
-    )
+    result = run_command([
+        "findmnt",
+        "-P",
+        "-n",
+        "-o",
+        "SOURCE,FSTYPE,OPTIONS,UUID,TARGET",
+        mountpoint,
+    ])
     if not result.ok or not result.stdout:
         return FilesystemContext(mountpoint=mountpoint, exists=os.path.exists(mountpoint))
 
-    parts = result.stdout.split()
-    if len(parts) < 5:
-        return FilesystemContext(mountpoint=mountpoint, exists=os.path.exists(mountpoint))
-
-    source, fstype, uuid = parts[0], parts[1], parts[3]
-    target = parts[-1]
-    options = " ".join(parts[2:-2]) if len(parts) > 5 else parts[2]
+    values = _parse_findmnt_pairs(result.stdout)
+    source = values.get("SOURCE", "")
+    fstype = values.get("FSTYPE", "")
+    options = values.get("OPTIONS", "")
+    uuid = values.get("UUID", "")
+    target = values.get("TARGET", "")
     subvol, subvolid = _parse_mount_options(options)
-
     separately_mounted = target == mountpoint and mountpoint != "/"
 
     return FilesystemContext(
@@ -251,7 +260,6 @@ def get_mount_context(mountpoint: str) -> FilesystemContext:
         separately_mounted=separately_mounted,
         is_btrfs=(fstype == "btrfs"),
     )
-
 
 def detect_root_context() -> FilesystemContext:
     """Inspect the root filesystem context."""
