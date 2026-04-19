@@ -1,0 +1,66 @@
+[project]
+name = "dblm"
+version = "0.1.0"
+description = "DBLM — Btrfs Layout Manager"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+authors = [
+  { name = "DBLM Contributors" }
+]
+keywords = ["btrfs", "snapper", "linux", "tui", "subvolumes", "fstab"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: System Administrators",
+  "License :: OSI Approved :: Apache Software License",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Topic :: System :: Filesystems",
+  "Topic :: System :: Systems Administration",
+  "Topic :: Utilities"
+]
+dependencies = [
+  "textual>=0.58.0,<1.0.0",
+  "typing-extensions>=4.9.0"
+]
+
+[project.urls]
+Homepage = "https://github.com/YOUR_USERNAME/dblm-btrfs-layout-manager"
+Repository = "https://github.com/YOUR_USERNAME/dblm-btrfs-layout-manager"
+Issues = "https://github.com/YOUR_USERNAME/dblm-btrfs-layout-manager/issues"
+
+[project.scripts]
+dblm = "app:main"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["core*", "ui*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+
+[tool.dblm]
+app_name = "DBLM"
+full_name = "DBLM — Btrfs Layout Manager"
+state_file = "data/state.json"
+log_dir = "data/logs"
+backup_suffix = ".dblm-backup"
+enable_restore_backup = true
+enable_delete_backup = true
