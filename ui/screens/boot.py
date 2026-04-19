@@ -2,25 +2,21 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ui.common import DBLMScreen, safe_text, yes_no
-
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Button, Static
 
-from core.system import EnvironmentSnapshot, command_exists, run_command, scan_environment
+from core.system import EnvironmentSnapshot, command_exists, run_command
+from ui.common import DBLMScreen, safe_text, yes_no
 
 
 class BootScreen(DBLMScreen):
     """Bootloader inspection screen for DBLM."""
 
-    BINDINGS = [
-        ("r", "refresh_boot", "Refresh"),
-    ]
+    BINDINGS = [("r", "refresh_boot", "Refresh")]
 
     def __init__(self, state_file: str | Path = "data/state.json") -> None:
-        super().__init__()
-        self.state_file = Path(state_file)
+        super().__init__(state_file=state_file)
         self.snapshot: EnvironmentSnapshot | None = None
         self.last_error: str | None = None
 
@@ -67,7 +63,7 @@ class BootScreen(DBLMScreen):
         try:
             self.snapshot = self.get_environment(force=True)
             self.last_error = None
-        except Exception as exc:  # pragma: no cover - defensive UI path
+        except Exception as exc:  # pragma: no cover
             self.snapshot = None
             self.last_error = str(exc)
 
