@@ -49,7 +49,11 @@ class FilesystemContext:
 
     @property
     def is_same_btrfs_as_root(self) -> bool:
-        return bool(self.is_btrfs and self.same_device_as_root)
+        return bool(
+            self.is_btrfs
+            and self.same_device_as_root
+            and not self.separately_mounted
+        )
 
     @property
     def home_supports_subvolumes(self) -> bool:
@@ -59,10 +63,10 @@ class FilesystemContext:
     def display_name(self) -> str:
         if not self.exists:
             return f"{self.mountpoint} (missing)"
-        if self.is_same_btrfs_as_root:
-            return f"{self.mountpoint} (same Btrfs filesystem as /)"
         if self.is_separate_btrfs:
             return f"{self.mountpoint} (separate Btrfs filesystem)"
+        if self.is_same_btrfs_as_root:
+            return f"{self.mountpoint} (same Btrfs filesystem as /)"
         if self.separately_mounted:
             return f"{self.mountpoint} (separate {self.fstype} filesystem)"
         return f"{self.mountpoint} ({self.fstype or 'unknown'})"
@@ -228,14 +232,16 @@ def get_mount_context(mountpoint: str) -> FilesystemContext:
     if not os.path.exists(mountpoint):
         return FilesystemContext(mountpoint=mountpoint, exists=False)
 
-    result = run_command([
-        "findmnt",
-        "-P",
-        "-n",
-        "-o",
-        "SOURCE,FSTYPE,OPTIONS,UUID,TARGET",
-        mountpoint,
-    ])
+    result = run_command(
+        [
+            "findmnt",
+            "-P",
+            "-n",
+            "-o",
+            "SOURCE,FSTYPE,OPTIONS,UUID,TARGET",
+            mountpoint,
+        ]
+    )
     if not result.ok or not result.stdout:
         return FilesystemContext(mountpoint=mountpoint, exists=os.path.exists(mountpoint))
 
@@ -260,6 +266,7 @@ def get_mount_context(mountpoint: str) -> FilesystemContext:
         separately_mounted=separately_mounted,
         is_btrfs=(fstype == "btrfs"),
     )
+
 
 def detect_root_context() -> FilesystemContext:
     """Inspect the root filesystem context."""
