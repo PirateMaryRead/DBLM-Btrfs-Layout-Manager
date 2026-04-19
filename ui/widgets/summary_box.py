@@ -2,9 +2,6 @@ from __future__ import annotations
 
 from textual.widgets import Static
 
-from core.state import StateManager
-from core.system import scan_environment
-
 
 def _safe(value: str | None, fallback: str = "unknown") -> str:
     if value is None:
@@ -25,17 +22,27 @@ class SummaryBox(Static):
 Interactive TUI for auditing and managing Btrfs layouts on existing Linux installations.
 """.strip()
 
-    def __init__(self, state_file: str = "data/state.json", **kwargs) -> None:
+    def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
-        self.state_manager = StateManager(state_file)
+        # FIX: no longer owns a StateManager or calls scan_environment()
+        # directly. Both are now accessed via self.app (DBLMApp) which holds
+        # a single shared instance and a cached environment snapshot.
 
     def on_mount(self) -> None:
+        self.update(self.DEFAULT_TEXT)
         self.refresh_summary()
 
     def refresh_summary(self) -> None:
         try:
-            snapshot = scan_environment()
-            state_summary = self.state_manager.summarize()
+            # FIX: use the app-level shared cache and state manager instead
+            # of creating new instances or calling scan_environment() directly.
+            from app import DBLMApp
+            app = self.app
+            if not isinstance(app, DBLMApp):
+                return
+
+            snapshot = app.get_environment()
+            state_summary = app.state_manager.summarize()
 
             self.update(
                 "[bold]DBLM — Btrfs Layout Manager[/bold]\n"
