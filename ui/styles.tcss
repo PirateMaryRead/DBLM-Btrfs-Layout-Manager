@@ -4,6 +4,22 @@ Screen {
     color: $text;
 }
 
+Header {
+    dock: top;
+}
+
+Footer {
+    dock: bottom;
+}
+
+Static {
+    color: $text;
+}
+
+Button {
+    margin-right: 1;
+}
+
 #app-shell {
     layout: vertical;
     height: 1fr;
@@ -67,14 +83,153 @@ Screen {
     content-align: left top;
 }
 
-Header {
-    dock: top;
+/* Generic screen layout */
+
+#dashboard-root,
+#dependencies-root,
+#subvolumes-root,
+#snapper-root,
+#boot-root,
+#plan-root,
+#apply-root,
+#rollback-root,
+#backups-root {
+    layout: vertical;
+    height: 1fr;
+    padding: 1;
 }
 
-Footer {
-    dock: bottom;
+#dashboard-title,
+#dependencies-title,
+#subvolumes-title,
+#snapper-title,
+#boot-title,
+#plan-title,
+#apply-title,
+#rollback-title,
+#backups-title {
+    text-style: bold;
+    margin-bottom: 1;
 }
 
-Static {
+#dashboard-subtitle,
+#dependencies-subtitle,
+#subvolumes-subtitle,
+#snapper-subtitle,
+#boot-subtitle,
+#plan-subtitle,
+#apply-subtitle,
+#rollback-subtitle,
+#backups-subtitle {
+    color: $text-muted;
+    margin-bottom: 1;
+}
+
+#dashboard-actions,
+#dependencies-actions,
+#subvolumes-actions,
+#snapper-actions,
+#boot-actions,
+#plan-actions,
+#apply-actions,
+#rollback-actions,
+#backups-actions {
+    height: auto;
+    margin-bottom: 1;
+}
+
+#dashboard-grid,
+#dependencies-grid,
+#subvolumes-layout,
+#snapper-grid,
+#boot-grid,
+#plan-grid,
+#apply-grid,
+#rollback-grid,
+#backups-grid {
+    layout: horizontal;
+    height: 1fr;
+}
+
+#dashboard-grid > *,
+#dependencies-grid > *,
+#subvolumes-layout > *,
+#snapper-grid > *,
+#boot-grid > *,
+#plan-grid > *,
+#apply-grid > *,
+#rollback-grid > *,
+#backups-grid > * {
+    width: 1fr;
+    height: 1fr;
+    border: round $primary;
+    background: $panel;
+    padding: 1;
+}
+
+#dashboard-grid > * + *,
+#dependencies-grid > * + *,
+#subvolumes-layout > * + *,
+#snapper-grid > * + *,
+#boot-grid > * + *,
+#plan-grid > * + *,
+#apply-grid > * + *,
+#rollback-grid > * + *,
+#backups-grid > * + * {
+    margin-left: 1;
+}
+
+#dashboard-root InfoCard,
+.dashboard-card {
+    border: round $accent;
+    background: $panel;
+    padding: 1;
+}
+
+/* Subvolumes screen specifics */
+
+#subvolumes-left,
+#subvolumes-right {
+    layout: vertical;
+}
+
+#profile-list,
+#target-list {
+    height: 1fr;
+    margin-bottom: 1;
+}
+
+#profile-list > .list-view--highlight,
+#target-list > .list-view--highlight {
+    background: $boost;
     color: $text;
+    text-style: bold;
+}
+
+#target-details,
+#selection-summary,
+#dashboard-root Static,
+#dependencies-root Static,
+#snapper-root Static,
+#boot-root Static,
+#plan-root Static,
+#apply-root Static,
+#rollback-root Static,
+#backups-root Static {
+    overflow: auto;
+}
+
+/* Make bottom notes readable */
+#plan-notes,
+#apply-notes,
+#rollback-notes,
+#backups-notes,
+#snapper-notes,
+#boot-notes,
+#dependencies-notes {
+    height: 7;
+    border: round $accent;
+    background: $panel;
+    padding: 1;
+    margin-top: 1;
 }
