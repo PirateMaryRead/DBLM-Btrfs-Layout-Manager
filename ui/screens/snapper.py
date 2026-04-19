@@ -4,33 +4,19 @@ from pathlib import Path
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.screen import Screen
 from textual.widgets import Button, Static
 
-from core.system import command_exists, run_command, EnvironmentSnapshot, scan_environment
+from core.system import EnvironmentSnapshot, command_exists, run_command
+from ui.common import DBLMScreen, safe_text, yes_no
 
 
-def _yes_no(value: bool) -> str:
-    return "yes" if value else "no"
-
-
-def _safe(value: str | None, fallback: str = "unknown") -> str:
-    if value is None:
-        return fallback
-    text = str(value).strip()
-    return text if text else fallback
-
-
-class SnapperScreen(Screen[None]):
+class SnapperScreen(DBLMScreen):
     """Snapper inspection screen for DBLM."""
 
-    BINDINGS = [
-        ("r", "refresh_snapper", "Refresh"),
-    ]
+    BINDINGS = [("r", "refresh_snapper", "Refresh")]
 
     def __init__(self, state_file: str | Path = "data/state.json") -> None:
         super().__init__()
-        self.state_file = Path(state_file)
         self.snapshot: EnvironmentSnapshot | None = None
         self.last_error: str | None = None
 
@@ -75,9 +61,9 @@ class SnapperScreen(Screen[None]):
 
     def refresh_snapper(self) -> None:
         try:
-            self.snapshot = scan_environment()
+            self.snapshot = self.get_environment(force=True)
             self.last_error = None
-        except Exception as exc:  # pragma: no cover - defensive UI path
+        except Exception as exc:  # pragma: no cover
             self.snapshot = None
             self.last_error = str(exc)
 
@@ -91,7 +77,7 @@ class SnapperScreen(Screen[None]):
         notes_box = self.query_one("#snapper-notes", Static)
 
         if self.snapshot is None:
-            error = _safe(self.last_error)
+            error = safe_text(self.last_error)
             status_box.update(f"[bold]Snapper status[/bold]\n\nEnvironment scan failed.\n\nError: {error}")
             configs_box.update("No Snapper data available.")
             layout_box.update("No layout data available.")
@@ -111,9 +97,9 @@ class SnapperScreen(Screen[None]):
 
         return (
             "[bold]Snapper status[/bold]\n\n"
-            f"snapper command available: {_yes_no(has_snapper)}\n"
-            f"Version: {_safe(version, 'not available')}\n"
-            f"Can inspect configs: {_yes_no(has_snapper)}"
+            f"snapper command available: {yes_no(has_snapper)}\n"
+            f"Version: {safe_text(version, 'not available')}\n"
+            f"Can inspect configs: {yes_no(has_snapper)}"
         )
 
     def _build_configs_text(self) -> str:
@@ -142,10 +128,10 @@ class SnapperScreen(Screen[None]):
 
         return (
             "[bold]Snapshot layout[/bold]\n\n"
-            f"Root is Btrfs: {_yes_no(root.is_btrfs)}\n"
-            f"Root subvolume: {_safe(root.subvol)}\n"
-            f"/.snapshots exists: {_yes_no(snapshots_path_exists)}\n"
-            f"/home supports Btrfs subvolumes: {_yes_no(home.home_supports_subvolumes)}\n\n"
+            f"Root is Btrfs: {yes_no(root.is_btrfs)}\n"
+            f"Root subvolume: {safe_text(root.subvol)}\n"
+            f"/.snapshots exists: {yes_no(snapshots_path_exists)}\n"
+            f"/home supports Btrfs subvolumes: {yes_no(home.home_supports_subvolumes)}\n\n"
             "Expected common layout targets:\n"
             "- /.snapshots\n"
             "- /root\n"
@@ -160,8 +146,8 @@ class SnapperScreen(Screen[None]):
 
         return (
             "[bold]Timers[/bold]\n\n"
-            f"snapper-timeline.timer: {_safe(timeline)}\n"
-            f"snapper-cleanup.timer: {_safe(cleanup)}"
+            f"snapper-timeline.timer: {safe_text(timeline)}\n"
+            f"snapper-cleanup.timer: {safe_text(cleanup)}"
         )
 
     def _build_notes_text(self) -> str:
