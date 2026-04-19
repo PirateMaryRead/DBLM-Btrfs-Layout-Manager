@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from textual.app import ComposeResult
 from textual.screen import Screen
+from textual.widgets import Footer, Header, Static
 
 from core.state import StateManager
 from core.system import EnvironmentSnapshot, scan_environment
@@ -70,3 +72,57 @@ class DBLMScreen(Screen[None]):
         app = getattr(self, "app", None)
         if app is not None and hasattr(app, "invalidate_environment_cache"):
             app.invalidate_environment_cache()
+
+
+class DBLMSectionScreen(DBLMScreen):
+    """
+    Base class for all visible DBLM sections.
+
+    It standardizes:
+    - Header on every screen
+    - Footer on every screen
+    - a compose_body() pattern so content stays focused on the section itself
+    """
+
+    def compose(self) -> ComposeResult:
+        yield Header(show_clock=True)
+        yield from self.compose_body()
+        yield Footer()
+
+    def compose_body(self) -> ComposeResult:
+        """Subclasses must provide the section body."""
+        yield Static("Section body not implemented.")
+
+
+class HelpScreen(DBLMSectionScreen):
+    """Keyboard help screen for DBLM."""
+
+    def compose_body(self) -> ComposeResult:
+        yield Static("[bold]Help[/bold]", id="help-title")
+        yield Static(
+            "Keyboard shortcuts available across DBLM screens.",
+            id="help-subtitle",
+        )
+        yield Static(
+            "[bold]Function keys[/bold]\n\n"
+            "F1  Dashboard\n"
+            "F2  Dependencies\n"
+            "F3  Subvolumes\n"
+            "F4  Snapper\n"
+            "F5  Boot\n"
+            "F6  Plan\n"
+            "F7  Backups\n"
+            "F8  Help\n\n"
+            "[bold]Additional shortcuts[/bold]\n\n"
+            "A   Apply\n"
+            "V   Revert\n"
+            "M   Main menu\n"
+            "B   Back\n"
+            "R   Refresh current screen\n"
+            "Q   Quit\n\n"
+            "[bold]Notes[/bold]\n\n"
+            "- Function keys are reserved for the most frequently used sections.\n"
+            "- Apply and Revert remain directly accessible with letter shortcuts.\n"
+            "- The footer shows currently available bindings.",
+            id="help-content",
+        )
