@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import logging
+import warnings
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-import os
 import tempfile
 from typing import Iterator
 
@@ -12,6 +13,8 @@ from core.system import (
     CommandError,
     run_command,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -105,11 +108,17 @@ def is_btrfs_path(path: str | Path) -> bool:
 
 def list_subvolumes(context: BtrfsContext) -> list[BtrfsSubvolume]:
     """List subvolumes from the top-level of a Btrfs filesystem."""
+    # FIX: capture stdout inside the context manager so parsing happens
+    # on data that was fully collected while the mount was still active.
+    # Accessing result.stdout outside the `with` block works today because
+    # the string is already in memory, but moving parsing inside makes the
+    # intent clear and prevents fragility on future refactors.
     with mounted_top_level(context) as top:
         result = run_command(["btrfs", "subvolume", "list", "-p", "-t", str(top)], check=True)
+        lines = result.stdout.splitlines()
 
     items: list[BtrfsSubvolume] = []
-    for raw_line in result.stdout.splitlines():
+    for raw_line in lines:
         parsed = _parse_subvolume_list_line(raw_line)
         if parsed is not None:
             items.append(parsed)
@@ -223,6 +232,10 @@ def suggest_flat_subvolume_name(target_path: str) -> str:
 def mounted_top_level(context: BtrfsContext) -> Iterator[Path]:
     """
     Mount the Btrfs top-level (subvolid=5) temporarily and yield its path.
+
+    The mount is always attempted to be released in the finally block.
+    If the unmount fails after a primary exception, the unmount error is
+    logged as a warning so the original exception is not suppressed.
     """
     if not context.is_valid:
         raise ValueError(f"Invalid Btrfs context for {context.label}")
@@ -238,15 +251,27 @@ def mounted_top_level(context: BtrfsContext) -> Iterator[Path]:
                 f"stderr: {result.stderr}"
             )
 
+        # FIX: track whether the body raised so we can decide whether to
+        # re-raise or warn on unmount failure, preserving the original exception.
+        primary_exception_raised = False
         try:
             yield mountpoint
+        except Exception:
+            primary_exception_raised = True
+            raise
         finally:
             unmount = run_command(["umount", str(mountpoint)])
             if not unmount.ok:
-                raise CommandError(
-                    f"Failed to unmount temporary top-level mount {mountpoint}.\n"
+                msg = (
+                    f"Failed to unmount temporary top-level mount {mountpoint}. "
                     f"stderr: {unmount.stderr}"
                 )
+                if primary_exception_raised:
+                    # Do not suppress the original exception — warn instead.
+                    warnings.warn(msg, stacklevel=2)
+                    logger.warning(msg)
+                else:
+                    raise CommandError(msg)
 
 
 def _extract_device_from_source(source: str) -> str:
@@ -278,7 +303,11 @@ def _parse_subvolume_list_line(line: str) -> BtrfsSubvolume | None:
         ID 256 gen 2579 parent 5 top level 5 path @
     """
     line = line.strip()
-    if not line or line.startswith("ID ") and " path " not in line:
+
+    # FIX: added explicit parentheses to make operator precedence unambiguous.
+    # Without them, Python evaluates as: (not line) or (line.startswith("ID ") and ...)
+    # which happens to be correct, but is fragile and misleading to readers.
+    if not line or (line.startswith("ID ") and " path " not in line):
         return None
 
     try:
@@ -290,7 +319,7 @@ def _parse_subvolume_list_line(line: str) -> BtrfsSubvolume | None:
         parent_id = int(tokens[tokens.index("parent") + 1])
 
         if "level" in tokens:
-            # Handles "top level"
+            # Handles "top level" (two-word token sequence)
             top_level_index = tokens.index("level")
             top_level_id = int(tokens[top_level_index + 1])
         else:
