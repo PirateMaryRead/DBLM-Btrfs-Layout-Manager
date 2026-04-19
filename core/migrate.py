@@ -98,9 +98,10 @@ def create_directory_backup(
     backup_root: str | Path = DEFAULT_BACKUP_ROOT,
 ) -> Path:
     """
-    Move an existing directory out of the way into the DBLM backup area.
+    Move an existing path out of the way into the DBLM backup area.
 
-    Returns the final backup path.
+    Uses shutil.move instead of Path.rename so it also works when the source and
+    backup destination are on different filesystems.
     """
     original = Path(original_path)
     if not original.exists():
@@ -108,7 +109,7 @@ def create_directory_backup(
 
     ensure_directory(backup_root)
     backup_path = build_backup_path(original, backup_root=backup_root)
-    original.rename(backup_path)
+    shutil.move(str(original), str(backup_path))
     return backup_path
 
 
@@ -193,7 +194,12 @@ def mounted_subvolume(
     context: BtrfsContext,
     subvolume_name: str,
 ) -> Iterator[Path]:
-    """Mount a specific subvolume temporarily and yield the mountpoint path."""
+    """
+    Mount a specific subvolume temporarily and yield the mountpoint path.
+
+    Preserves the original exception from the managed block if unmount also
+    fails during cleanup.
+    """
     with tempfile.TemporaryDirectory(prefix=f"dblm-subvol-{context.label}-") as temp_dir:
         mountpoint = Path(temp_dir)
         result = run_command(
@@ -206,11 +212,15 @@ def mounted_subvolume(
                 f"stderr: {result.stderr}"
             )
 
+        original_error: BaseException | None = None
         try:
             yield mountpoint
+        except BaseException as exc:
+            original_error = exc
+            raise
         finally:
             unmount = run_command(["umount", str(mountpoint)], check=False)
-            if not unmount.ok:
+            if not unmount.ok and original_error is None:
                 raise CommandError(
                     f"Failed to unmount temporary subvolume mount {mountpoint}\n"
                     f"stderr: {unmount.stderr}"
@@ -244,6 +254,16 @@ def unmount_path(path: str | Path) -> None:
         raise CommandError(f"Failed to unmount {path}\nstderr: {result.stderr}")
 
 
+def is_exact_mountpoint(path: str | Path) -> bool:
+    """Return True only when the path itself is an active mountpoint."""
+    target = str(Path(path))
+    result = run_command(
+        ["findmnt", "-n", "-o", "TARGET", "--target", target],
+        check=False,
+    )
+    return result.ok and result.stdout.strip() == target
+
+
 def migrate_path_to_subvolume(
     *,
     context: BtrfsContext,
@@ -274,7 +294,7 @@ def migrate_path_to_subvolume(
     else:
         services = ServiceStopResult()
 
-    created_path = create_subvolume(context, request.subvolume_name)
+    create_subvolume(context, request.subvolume_name)
     created_subvolume = True
 
     copied = False
@@ -300,7 +320,10 @@ def migrate_path_to_subvolume(
                     backup_path=backup_path,
                     kind="directory",
                     source_run_id=run_id,
-                    notes=f"Backup created before migrating {target} to subvolume {request.subvolume_name}",
+                    notes=(
+                        f"Backup created before migrating {target} "
+                        f"to subvolume {request.subvolume_name}"
+                    ),
                 )
                 backup_id = backup.backup_id
         else:
@@ -394,10 +417,8 @@ def rollback_migration(
     """
     target = Path(target_path)
 
-    if target.exists():
-        mount_check = run_command(["findmnt", "-n", str(target)], check=False)
-        if mount_check.ok and mount_check.stdout.strip():
-            unmount_path(target)
+    if target.exists() and is_exact_mountpoint(target):
+        unmount_path(target)
 
     if target.exists() and not target.is_symlink():
         if target.is_dir():
