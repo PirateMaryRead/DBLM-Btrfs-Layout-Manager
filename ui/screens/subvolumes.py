@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ui.common import DBLMScreen, safe_text, yes_no
+
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
-from textual.screen import Screen
 from textual.widgets import Button, ListItem, ListView, Static
 
 from core.profiles import (
@@ -19,21 +20,10 @@ from core.profiles import (
     list_targets,
     resolve_profile_targets,
 )
-from core.system import EnvironmentSnapshot, scan_environment
+from core.system import EnvironmentSnapshot
 
 
-def _yes_no(value: bool) -> str:
-    return "yes" if value else "no"
-
-
-def _safe(value: str | None, fallback: str = "unknown") -> str:
-    if value is None:
-        return fallback
-    text = str(value).strip()
-    return text if text else fallback
-
-
-class SubvolumeScreen(Screen[None]):
+class SubvolumeScreen(DBLMScreen):
     """Subvolume planning screen."""
 
     BINDINGS = [
@@ -127,7 +117,7 @@ class SubvolumeScreen(Screen[None]):
 
     def refresh_data(self) -> None:
         try:
-            self.snapshot = scan_environment()
+            self.snapshot = self.get_environment(force=True)
             self.last_error = None
         except Exception as exc:  # pragma: no cover - defensive UI path
             self.snapshot = None
@@ -183,7 +173,7 @@ class SubvolumeScreen(Screen[None]):
         if self.snapshot is None:
             details.update(
                 "[bold]Status[/bold]\n\n"
-                f"Unable to inspect system.\n\nError: {_safe(self.last_error)}"
+                f"Unable to inspect system.\n\nError: {safe_text(self.last_error)}"
             )
             return
 
@@ -211,10 +201,10 @@ class SubvolumeScreen(Screen[None]):
             f"Description: {target.description}\n"
             f"Suggested subvolume name: {suggested_name}\n"
             f"Layout style: {layout_name}\n"
-            f"Selected: {_yes_no(selected)}\n"
-            f"Path exists now: {_yes_no(current_path_exists)}\n"
-            f"Marked risky: {_yes_no(target.risky)}\n"
-            f"Requires Btrfs /home: {_yes_no(target.requires_btrfs_home)}\n"
+            f"Selected: {yes_no(selected)}\n"
+            f"Path exists now: {yes_no(current_path_exists)}\n"
+            f"Marked risky: {yes_no(target.risky)}\n"
+            f"Requires Btrfs /home: {yes_no(target.requires_btrfs_home)}\n"
             f"Availability: {availability}"
         )
 
@@ -242,7 +232,7 @@ class SubvolumeScreen(Screen[None]):
             f"Selected targets: {len(selected_targets)}\n"
             f"System targets: {len(grouped.get('system', []))}\n"
             f"Home targets: {len(grouped.get('home', []))}\n\n"
-            f"/home supports subvolumes: {_yes_no(home.home_supports_subvolumes)}\n"
+            f"/home supports subvolumes: {yes_no(home.home_supports_subvolumes)}\n"
             f"/home summary: {home.display_name}\n\n"
             "Planned target paths:\n"
             + (
