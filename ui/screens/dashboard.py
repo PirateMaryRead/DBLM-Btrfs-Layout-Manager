@@ -23,7 +23,7 @@ class DashboardScreen(DBLMScreen):
     BINDINGS = [("r", "refresh_dashboard", "Refresh")]
 
     def __init__(self, state_file: str | Path = "data/state.json") -> None:
-        super().__init__()
+        super().__init__(state_file=state_file)
         self.snapshot: EnvironmentSnapshot | None = None
         self.last_error: str | None = None
 
@@ -34,13 +34,16 @@ class DashboardScreen(DBLMScreen):
                 "Audit the current system, inspect Btrfs layout details, and review pending state.",
                 id="dashboard-subtitle",
             )
+
             with Horizontal(id="dashboard-actions"):
                 yield Button("Refresh", id="refresh-dashboard", variant="primary")
+
             with Horizontal(id="dashboard-grid"):
                 yield InfoCard(id="card-system")
                 yield InfoCard(id="card-home")
                 yield InfoCard(id="card-boot")
                 yield InfoCard(id="card-state")
+
             yield InfoCard(id="card-warnings")
 
     def on_mount(self) -> None:
@@ -60,6 +63,7 @@ class DashboardScreen(DBLMScreen):
         except Exception as exc:  # pragma: no cover
             self.snapshot = None
             self.last_error = str(exc)
+
         self._render_cards()
 
     def _render_cards(self) -> None:
@@ -90,6 +94,7 @@ class DashboardScreen(DBLMScreen):
     def _build_system_text(self, snapshot: EnvironmentSnapshot) -> str:
         root = snapshot.root_fs
         deps = snapshot.dependencies
+
         return (
             "[bold]System[/bold]\n\n"
             f"Host: {safe_text(snapshot.hostname)}\n"
@@ -108,8 +113,10 @@ class DashboardScreen(DBLMScreen):
 
     def _build_home_text(self, snapshot: EnvironmentSnapshot) -> str:
         home = snapshot.home_fs
+
         if not home.exists:
             return "[bold]Home[/bold]\n\n/home was not found on this system."
+
         return (
             "[bold]Home[/bold]\n\n"
             f"Home source: {safe_text(home.source)}\n"
@@ -124,6 +131,7 @@ class DashboardScreen(DBLMScreen):
 
     def _build_boot_text(self, snapshot: EnvironmentSnapshot) -> str:
         boot = snapshot.bootloader
+
         return (
             "[bold]Boot[/bold]\n\n"
             f"Detected bootloader: {safe_text(boot.detected)}\n"
@@ -145,11 +153,14 @@ class DashboardScreen(DBLMScreen):
             f"Restorable backups: {summary.get('backups_restorable', 0)}\n"
             f"Deleted backups: {summary.get('backups_deleted', 0)}\n"
             f"Latest run: {safe_text(summary.get('latest_run_id'))}\n\n"
-            "Backup actions supported:\n- restore recorded backups\n- delete recorded backups"
+            "Backup actions supported:\n"
+            "- restore recorded backups\n"
+            "- delete recorded backups"
         )
 
     def _build_warnings_text(self, snapshot: EnvironmentSnapshot) -> str:
         if not snapshot.warnings:
             return "[bold]Warnings[/bold]\n\nNo warnings detected."
+
         lines = "\n".join(f"- {warning}" for warning in snapshot.warnings)
         return f"[bold]Warnings[/bold]\n\n{lines}"
