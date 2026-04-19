@@ -24,10 +24,20 @@ class FstabEntry:
     options: str = ""
     dump: str = ""
     passno: str = ""
+    parse_error: str | None = None
 
     @property
     def is_active(self) -> bool:
-        return not self.is_comment and not self.is_blank and bool(self.mountpoint)
+        return (
+            not self.is_comment
+            and not self.is_blank
+            and bool(self.mountpoint)
+            and self.parse_error is None
+        )
+
+    @property
+    def is_invalid(self) -> bool:
+        return self.parse_error is not None
 
     @property
     def managed_by_dblm(self) -> bool:
@@ -59,20 +69,26 @@ def utc_stamp() -> str:
 
 def parse_fstab_line(line: str) -> FstabEntry:
     """Parse a single fstab line while preserving raw content."""
-    stripped = line.strip()
+    raw = line.rstrip("\n")
+    stripped = raw.strip()
 
     if not stripped:
-        return FstabEntry(raw=line.rstrip("\n"), is_comment=False, is_blank=True)
+        return FstabEntry(raw=raw, is_comment=False, is_blank=True)
 
     if stripped.startswith("#"):
-        return FstabEntry(raw=line.rstrip("\n"), is_comment=True, is_blank=False)
+        return FstabEntry(raw=raw, is_comment=True, is_blank=False)
 
     parts = stripped.split()
     if len(parts) < 6:
-        return FstabEntry(raw=line.rstrip("\n"), is_comment=True, is_blank=False)
+        return FstabEntry(
+            raw=raw,
+            is_comment=False,
+            is_blank=False,
+            parse_error="Invalid fstab line: expected at least 6 fields.",
+        )
 
     return FstabEntry(
-        raw=line.rstrip("\n"),
+        raw=raw,
         is_comment=False,
         is_blank=False,
         fs_spec=parts[0],
@@ -174,6 +190,15 @@ def detect_conflicts(entries: list[FstabEntry]) -> list[FstabConflict]:
             )
 
     return conflicts
+
+
+def find_invalid_entries(entries: list[FstabEntry]) -> list[tuple[int, FstabEntry]]:
+    """Return invalid fstab entries with their indexes."""
+    return [
+        (index, entry)
+        for index, entry in enumerate(entries)
+        if entry.is_invalid
+    ]
 
 
 def find_entries_for_mountpoint(entries: list[FstabEntry], mountpoint: str) -> list[int]:
