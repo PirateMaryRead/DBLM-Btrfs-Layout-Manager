@@ -4,7 +4,6 @@ from pathlib import Path
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.screen import Screen
 from textual.widgets import Button, Static
 
 from core.packages import (
@@ -14,30 +13,17 @@ from core.packages import (
     get_apt_status,
     summarize_package_checks,
 )
-from core.system import EnvironmentSnapshot, scan_environment
+from core.system import EnvironmentSnapshot
+from ui.common import DBLMScreen, safe_text, yes_no
 
 
-def _yes_no(value: bool) -> str:
-    return "yes" if value else "no"
-
-
-def _safe(value: str | None, fallback: str = "unknown") -> str:
-    if value is None:
-        return fallback
-    text = str(value).strip()
-    return text if text else fallback
-
-
-class DependenciesScreen(Screen[None]):
+class DependenciesScreen(DBLMScreen):
     """Dependency inspection screen for DBLM."""
 
-    BINDINGS = [
-        ("r", "refresh_dependencies", "Refresh"),
-    ]
+    BINDINGS = [("r", "refresh_dependencies", "Refresh")]
 
     def __init__(self, state_file: str | Path = "data/state.json") -> None:
         super().__init__()
-        self.state_file = Path(state_file)
         self.snapshot: EnvironmentSnapshot | None = None
         self.last_error: str | None = None
 
@@ -82,9 +68,9 @@ class DependenciesScreen(Screen[None]):
 
     def refresh_dependencies(self) -> None:
         try:
-            self.snapshot = scan_environment()
+            self.snapshot = self.get_environment(force=True)
             self.last_error = None
-        except Exception as exc:  # pragma: no cover - defensive UI path
+        except Exception as exc:  # pragma: no cover
             self.snapshot = None
             self.last_error = str(exc)
 
@@ -98,7 +84,7 @@ class DependenciesScreen(Screen[None]):
         notes_box = self.query_one("#dependencies-notes", Static)
 
         if self.snapshot is None:
-            error = _safe(self.last_error)
+            error = safe_text(self.last_error)
             apt_box.update(f"[bold]APT status[/bold]\n\nEnvironment scan failed.\n\nError: {error}")
             core_box.update("No dependency data available.")
             features_box.update("No feature data available.")
@@ -131,11 +117,11 @@ class DependenciesScreen(Screen[None]):
     def _build_apt_text(self, apt_status) -> str:
         return (
             "[bold]APT status[/bold]\n\n"
-            f"apt available: {_yes_no(apt_status.has_apt)}\n"
-            f"apt-get available: {_yes_no(apt_status.has_apt_get)}\n"
-            f"dpkg-query available: {_yes_no(apt_status.has_dpkg_query)}\n"
-            f"usable package tooling: {_yes_no(apt_status.usable)}\n"
-            f"can install packages: {_yes_no(apt_status.can_install)}"
+            f"apt available: {yes_no(apt_status.has_apt)}\n"
+            f"apt-get available: {yes_no(apt_status.has_apt_get)}\n"
+            f"dpkg-query available: {yes_no(apt_status.has_dpkg_query)}\n"
+            f"usable package tooling: {yes_no(apt_status.usable)}\n"
+            f"can install packages: {yes_no(apt_status.can_install)}"
         )
 
     def _build_core_text(self, summary: dict[str, list[str]]) -> str:
@@ -165,8 +151,8 @@ class DependenciesScreen(Screen[None]):
             "[bold]Install plan[/bold]\n\n"
             f"Already installed: {', '.join(install_plan.already_installed) if install_plan.already_installed else 'none'}\n"
             f"To install: {', '.join(install_plan.to_install) if install_plan.to_install else 'none'}\n"
-            f"Missing APT support: {_yes_no(install_plan.missing_apt_support)}\n"
-            f"Plan empty: {_yes_no(install_plan.is_empty)}"
+            f"Missing APT support: {yes_no(install_plan.missing_apt_support)}\n"
+            f"Plan empty: {yes_no(install_plan.is_empty)}"
         )
 
     def _build_notes_text(
