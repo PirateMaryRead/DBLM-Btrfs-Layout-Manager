@@ -16,7 +16,7 @@ class SnapperScreen(DBLMScreen):
     BINDINGS = [("r", "refresh_snapper", "Refresh")]
 
     def __init__(self, state_file: str | Path = "data/state.json") -> None:
-        super().__init__()
+        super().__init__(state_file=state_file)
         self.snapshot: EnvironmentSnapshot | None = None
         self.last_error: str | None = None
 
@@ -186,9 +186,7 @@ class SnapperScreen(DBLMScreen):
             return []
 
         configs: list[str] = []
-        lines = result.stdout.splitlines()
-
-        for line in lines:
+        for line in result.stdout.splitlines():
             stripped = line.strip()
             if not stripped:
                 continue
