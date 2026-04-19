@@ -2,15 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ui.common import DBLMScreen, safe_text, yes_no
-
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
 from textual.widgets import Button, ListItem, ListView, Static
 
 from core.profiles import (
-    Profile,
     SubvolumeTarget,
     default_targets,
     filter_targets_for_home_support,
@@ -21,6 +18,7 @@ from core.profiles import (
     resolve_profile_targets,
 )
 from core.system import EnvironmentSnapshot
+from ui.common import DBLMScreen, safe_text, yes_no
 
 
 class SubvolumeScreen(DBLMScreen):
@@ -36,8 +34,7 @@ class SubvolumeScreen(DBLMScreen):
     selected_target_key: reactive[str | None] = reactive(None)
 
     def __init__(self, state_file: str | Path = "data/state.json") -> None:
-        super().__init__()
-        self.state_file = Path(state_file)
+        super().__init__(state_file=state_file)
         self.snapshot: EnvironmentSnapshot | None = None
         self.last_error: str | None = None
         self.selected_keys: set[str] = set()
@@ -91,7 +88,7 @@ class SubvolumeScreen(DBLMScreen):
         defaults = default_targets(include_home=include_home)
         defaults = filter_targets_for_home_support(
             defaults,
-            home_is_btrfs=self._home_support_enabled(),
+            home_is_btrfs=include_home,
         )
         self.selected_keys = {target.key for target in defaults}
         self.selected_profile = "custom"
@@ -156,9 +153,7 @@ class SubvolumeScreen(DBLMScreen):
         for target in targets:
             marker = "[x]" if target.key in self.selected_keys else "[ ]"
             scope = "home" if target.scope == "home" else "system"
-            target_list.append(
-                ListItem(Static(f"{marker} {target.path} ({scope})"))
-            )
+            target_list.append(ListItem(Static(f"{marker} {target.path} ({scope})")))
 
         if self.selected_target_key not in {item.key for item in targets}:
             self.selected_target_key = targets[0].key
@@ -182,7 +177,6 @@ class SubvolumeScreen(DBLMScreen):
             return
 
         home_supported = self._home_support_enabled()
-        layout_name = "flat"
         suggested_name = target.suggested_name(flat_layout=True)
 
         availability = "available"
@@ -200,7 +194,7 @@ class SubvolumeScreen(DBLMScreen):
             f"Scope: {current_scope}\n"
             f"Description: {target.description}\n"
             f"Suggested subvolume name: {suggested_name}\n"
-            f"Layout style: {layout_name}\n"
+            f"Layout style: flat\n"
             f"Selected: {yes_no(selected)}\n"
             f"Path exists now: {yes_no(current_path_exists)}\n"
             f"Marked risky: {yes_no(target.risky)}\n"
@@ -251,10 +245,7 @@ class SubvolumeScreen(DBLMScreen):
         profiles = list_profiles()
         profile = profiles[index - 1]
         include_home = self._home_support_enabled()
-        targets = resolve_profile_targets(
-            profile.key,
-            include_home=include_home,
-        )
+        targets = resolve_profile_targets(profile.key, include_home=include_home)
         targets = filter_targets_for_home_support(
             targets,
             home_is_btrfs=include_home,
