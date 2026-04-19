@@ -2,26 +2,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ui.common import DBLMScreen, safe_text, yes_no
+
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.screen import Screen
 from textual.widgets import Button, Static
 
 from core.system import EnvironmentSnapshot, command_exists, run_command, scan_environment
 
 
-def _yes_no(value: bool) -> str:
-    return "yes" if value else "no"
-
-
-def _safe(value: str | None, fallback: str = "unknown") -> str:
-    if value is None:
-        return fallback
-    text = str(value).strip()
-    return text if text else fallback
-
-
-class BootScreen(Screen[None]):
+class BootScreen(DBLMScreen):
     """Bootloader inspection screen for DBLM."""
 
     BINDINGS = [
@@ -75,7 +65,7 @@ class BootScreen(Screen[None]):
 
     def refresh_boot(self) -> None:
         try:
-            self.snapshot = scan_environment()
+            self.snapshot = self.get_environment(force=True)
             self.last_error = None
         except Exception as exc:  # pragma: no cover - defensive UI path
             self.snapshot = None
@@ -91,7 +81,7 @@ class BootScreen(Screen[None]):
         notes_box = self.query_one("#boot-notes", Static)
 
         if self.snapshot is None:
-            error = _safe(self.last_error)
+            error = safe_text(self.last_error)
             status_box.update(f"[bold]Boot[/bold]\n\nEnvironment scan failed.\n\nError: {error}")
             grub_box.update("No GRUB data available.")
             systemd_box.update("No systemd-boot data available.")
@@ -113,14 +103,14 @@ class BootScreen(Screen[None]):
 
         return (
             "[bold]Detected boot environment[/bold]\n\n"
-            f"Detected bootloader: {_safe(boot.detected)}\n"
-            f"UEFI: {_yes_no(boot.is_uefi)}\n"
-            f"EFI mountpoint: {_safe(boot.efi_mountpoint)}\n"
-            f"GRUB available: {_yes_no(boot.has_grub)}\n"
-            f"grub-mkconfig available: {_yes_no(boot.has_grub_mkconfig)}\n"
-            f"bootctl available: {_yes_no(boot.has_bootctl)}\n"
-            f"systemd-boot detected: {_yes_no(boot.has_systemd_boot)}\n"
-            f"grub-btrfsd available: {_yes_no(boot.has_grub_btrfsd)}"
+            f"Detected bootloader: {safe_text(boot.detected)}\n"
+            f"UEFI: {yes_no(boot.is_uefi)}\n"
+            f"EFI mountpoint: {safe_text(boot.efi_mountpoint)}\n"
+            f"GRUB available: {yes_no(boot.has_grub)}\n"
+            f"grub-mkconfig available: {yes_no(boot.has_grub_mkconfig)}\n"
+            f"bootctl available: {yes_no(boot.has_bootctl)}\n"
+            f"systemd-boot detected: {yes_no(boot.has_systemd_boot)}\n"
+            f"grub-btrfsd available: {yes_no(boot.has_grub_btrfsd)}"
         )
 
     def _build_grub_text(self) -> str:
@@ -134,10 +124,10 @@ class BootScreen(Screen[None]):
 
         return (
             "[bold]GRUB integration[/bold]\n\n"
-            f"GRUB tooling available: {_yes_no(boot.has_grub or boot.has_grub_mkconfig)}\n"
-            f"grub-install: {_safe(grub_install, 'not available')}\n"
-            f"grub-mkconfig: {_safe(grub_mkconfig, 'not available')}\n"
-            f"grub-btrfsd: {_safe(grub_btrfsd, 'not available')}\n\n"
+            f"GRUB tooling available: {yes_no(boot.has_grub or boot.has_grub_mkconfig)}\n"
+            f"grub-install: {safe_text(grub_install, 'not available')}\n"
+            f"grub-mkconfig: {safe_text(grub_mkconfig, 'not available')}\n"
+            f"grub-btrfsd: {safe_text(grub_btrfsd, 'not available')}\n\n"
             "Planned DBLM support:\n"
             "- detect current GRUB environment\n"
             "- regenerate boot configuration\n"
@@ -154,11 +144,11 @@ class BootScreen(Screen[None]):
 
         return (
             "[bold]systemd-boot integration[/bold]\n\n"
-            f"bootctl available: {_yes_no(boot.has_bootctl)}\n"
-            f"systemd-boot detected: {_yes_no(boot.has_systemd_boot)}\n"
-            f"bootctl version: {_safe(bootctl_version, 'not available')}\n"
-            f"bootctl is-installed: {_safe(is_installed, 'unknown')}\n"
-            f"EFI mountpoint: {_safe(boot.efi_mountpoint)}\n\n"
+            f"bootctl available: {yes_no(boot.has_bootctl)}\n"
+            f"systemd-boot detected: {yes_no(boot.has_systemd_boot)}\n"
+            f"bootctl version: {safe_text(bootctl_version, 'not available')}\n"
+            f"bootctl is-installed: {safe_text(is_installed, 'unknown')}\n"
+            f"EFI mountpoint: {safe_text(boot.efi_mountpoint)}\n\n"
             "Planned DBLM support:\n"
             "- detect loader presence\n"
             "- validate EFI environment\n"
@@ -172,9 +162,9 @@ class BootScreen(Screen[None]):
 
         return (
             "[bold]Snapshot boot integration[/bold]\n\n"
-            f"/.snapshots exists: {_yes_no(snapshots_exists)}\n"
-            f"grub-btrfs.path: {_safe(grub_btrfs_path)}\n"
-            f"grub-btrfs.service: {_safe(grub_btrfs_service)}\n\n"
+            f"/.snapshots exists: {yes_no(snapshots_exists)}\n"
+            f"grub-btrfs.path: {safe_text(grub_btrfs_path)}\n"
+            f"grub-btrfs.service: {safe_text(grub_btrfs_service)}\n\n"
             "Current scope:\n"
             "- detect snapshot-related tooling\n"
             "- inspect boot integration readiness\n"
