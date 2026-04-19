@@ -7,10 +7,10 @@ from textual.containers import Horizontal, Vertical
 from textual.widgets import Button, Static
 
 from core.system import EnvironmentSnapshot
-from ui.common import DBLMScreen, safe_text
+from ui.common import DBLMSectionScreen, safe_text
 
 
-class ApplyScreen(DBLMScreen):
+class ApplyScreen(DBLMSectionScreen):
     BINDINGS = [("r", "refresh_apply", "Refresh")]
 
     def __init__(self, state_file: str | Path = "data/state.json") -> None:
@@ -18,7 +18,7 @@ class ApplyScreen(DBLMScreen):
         self.snapshot: EnvironmentSnapshot | None = None
         self.last_error: str | None = None
 
-    def compose(self) -> ComposeResult:
+    def compose_body(self) -> ComposeResult:
         with Vertical(id="apply-root"):
             yield Static("[bold]Apply[/bold]", id="apply-title")
             yield Static(
