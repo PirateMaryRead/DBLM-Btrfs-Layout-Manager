@@ -8,10 +8,10 @@ from textual.widgets import Button, Static
 
 from core.profiles import filter_targets_for_home_support, list_targets
 from core.system import EnvironmentSnapshot
-from ui.common import DBLMScreen, safe_text, yes_no
+from ui.common import DBLMSectionScreen, safe_text, yes_no
 
 
-class PlanScreen(DBLMScreen):
+class PlanScreen(DBLMSectionScreen):
     BINDINGS = [("r", "refresh_plan", "Refresh")]
 
     def __init__(self, state_file: str | Path = "data/state.json") -> None:
@@ -19,7 +19,7 @@ class PlanScreen(DBLMScreen):
         self.snapshot: EnvironmentSnapshot | None = None
         self.last_error: str | None = None
 
-    def compose(self) -> ComposeResult:
+    def compose_body(self) -> ComposeResult:
         with Vertical(id="plan-root"):
             yield Static("[bold]Plan[/bold]", id="plan-title")
             yield Static(
