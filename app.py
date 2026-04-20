@@ -12,7 +12,6 @@ from core.logging import (
     clear_log_buffer,
     configure_logging,
     get_logger,
-    get_log_buffer,
     tail_log_buffer,
 )
 from core.state import StateManager
@@ -231,19 +230,19 @@ class DBLMApp(App[None]):
         self.state_file = Path(state_file)
         self.state_manager = StateManager(self.state_file)
         self._environment_cache: EnvironmentSnapshot | None = None
-        self._root_logger = configure_logging()
-        self.logger = get_logger("app")
-        self.logger.info("DBLM application initialized.")
-        self.logger.info("Using state file: %s", self.state_file)
+        configure_logging()
+        self.dblm_logger = get_logger("app")
+        self.dblm_logger.info("DBLM application initialized.")
+        self.dblm_logger.info("Using state file: %s", self.state_file)
 
     def on_mount(self) -> None:
-        self.logger.info("Application mounted.")
+        self.dblm_logger.info("Application mounted.")
         self.push_screen(MainMenuScreen(state_file=self.state_file))
 
     def action_back(self) -> None:
         """Return to the previous screen when possible."""
         if len(self.screen_stack) > 1:
-            self.logger.info("Returning to previous screen.")
+            self.dblm_logger.info("Returning to previous screen.")
             self.pop_screen()
         self.invalidate_environment_cache()
         self.call_after_refresh(self._refresh_main_menu_summary_if_visible)
@@ -251,7 +250,7 @@ class DBLMApp(App[None]):
     def action_main_menu(self) -> None:
         """Return to the main menu screen."""
         if len(self.screen_stack) > 1:
-            self.logger.info("Returning to main menu.")
+            self.dblm_logger.info("Returning to main menu.")
         while len(self.screen_stack) > 1:
             self.pop_screen()
         self.invalidate_environment_cache()
@@ -297,12 +296,13 @@ class DBLMApp(App[None]):
         Keeps the main menu as the base screen and replaces the currently open
         section instead of stacking many section screens.
         """
-        self.logger.info("Request to open section screen: %s", screen_cls.__name__)
+        self.dblm_logger.info("Request to open section screen: %s", screen_cls.__name__)
 
         while len(self.screen_stack) > 1:
             self.pop_screen()
 
         if screen_cls is MainMenuScreen:
+            self.invalidate_environment_cache()
             self.call_after_refresh(self._refresh_main_menu_summary_if_visible)
             return
 
@@ -315,13 +315,13 @@ class DBLMApp(App[None]):
         Set force=True to rescan the system.
         """
         if force or self._environment_cache is None:
-            self.logger.info("Scanning environment (force=%s).", force)
+            self.dblm_logger.info("Scanning environment (force=%s).", force)
             self._environment_cache = scan_environment()
         return self._environment_cache
 
     def invalidate_environment_cache(self) -> None:
         """Clear the cached environment snapshot."""
-        self.logger.info("Invalidating environment cache.")
+        self.dblm_logger.info("Invalidating environment cache.")
         self._environment_cache = None
 
     def get_log_entries(self, *, limit: int = 500) -> list[str]:
@@ -331,15 +331,11 @@ class DBLMApp(App[None]):
     def clear_logs(self) -> None:
         """Clear the in-memory UI log buffer."""
         clear_log_buffer()
-        self.logger.info("Application requested log buffer clear.")
+        self.dblm_logger.info("Application requested log buffer clear.")
 
     def log_ui_event(self, message: str) -> None:
         """Convenience helper for UI-originated log messages."""
         append_log_line(message, logger_name="ui")
-
-    def get_full_log_buffer(self) -> list[str]:
-        """Return the full in-memory log buffer."""
-        return get_log_buffer()
 
     def _refresh_main_menu_summary_if_visible(self) -> None:
         if isinstance(self.screen, MainMenuScreen):
@@ -347,7 +343,7 @@ class DBLMApp(App[None]):
                 summary = self.screen.query_one("#summary-box", SummaryBox)
                 summary.refresh_summary()
             except Exception:
-                self.logger.exception("Failed to refresh main menu summary box.", exc_info=True)
+                self.dblm_logger.exception("Failed to refresh main menu summary box.")
 
 
 def main() -> None:
