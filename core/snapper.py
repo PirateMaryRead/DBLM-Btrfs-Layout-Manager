@@ -1,9 +1,22 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from core.logging import get_logger
 from core.system import command_exists, run_command
+
+
+OperationLogger = Callable[[str, str, str], None]
+
+
+def _noop_operation_logger(message: str, level: str = "info", source: str = "snapper") -> None:
+    """Default operation logger used when no callback is provided."""
+    return None
+
+
+LOGGER = get_logger("snapper")
 
 
 @dataclass(slots=True)
@@ -36,7 +49,9 @@ class SnapperStatus:
 
 def snapper_available() -> bool:
     """Return True when Snapper is available in PATH."""
-    return command_exists("snapper")
+    available = command_exists("snapper")
+    LOGGER.info("Snapper availability check: %s", available)
+    return available
 
 
 def get_snapper_version() -> str | None:
@@ -46,10 +61,13 @@ def get_snapper_version() -> str | None:
 
     result = run_command(["snapper", "--version"], check=False)
     if not result.ok:
+        LOGGER.warning("Failed to query Snapper version.")
         return None
 
     first_line = result.stdout.splitlines()[0] if result.stdout else ""
-    return first_line.strip() or None
+    version = first_line.strip() or None
+    LOGGER.info("Detected Snapper version: %s", version)
+    return version
 
 
 def list_configs() -> list[SnapperConfig]:
@@ -63,6 +81,7 @@ def list_configs() -> list[SnapperConfig]:
 
     result = run_command(["snapper", "list-configs"], check=False)
     if not result.ok or not result.stdout.strip():
+        LOGGER.info("No Snapper configurations detected.")
         return []
 
     configs: list[SnapperConfig] = []
@@ -97,6 +116,7 @@ def list_configs() -> list[SnapperConfig]:
             )
         )
 
+    LOGGER.info("Detected %s Snapper configuration(s).", len(configs))
     return configs
 
 
@@ -113,6 +133,7 @@ def create_root_config(
     subvolume: str = "/",
     fstype: str = "btrfs",
     template: str = "default",
+    operation_log: OperationLogger | None = None,
 ) -> bool:
     """
     Create the root Snapper configuration.
@@ -121,6 +142,8 @@ def create_root_config(
     - This is intentionally simple for the first iteration.
     - More advanced setup should be layered on top later.
     """
+    log = operation_log or _noop_operation_logger
+
     if not snapper_available():
         raise RuntimeError("snapper is not available.")
 
@@ -132,16 +155,39 @@ def create_root_config(
         subvolume,
     ]
 
+    LOGGER.info(
+        "Creating Snapper root config (subvolume=%s, fstype=%s, template=%s).",
+        subvolume,
+        fstype,
+        template,
+    )
+    log(f"Creating Snapper root configuration for {subvolume}", "info", "snapper")
     result = run_command(command, check=False)
+    if result.ok:
+        log("Snapper root configuration created successfully.", "info", "snapper")
+    else:
+        log("Failed to create Snapper root configuration.", "error", "snapper")
     return result.ok
 
 
-def delete_config(name: str) -> bool:
+def delete_config(
+    name: str,
+    *,
+    operation_log: OperationLogger | None = None,
+) -> bool:
     """Delete a Snapper configuration."""
+    log = operation_log or _noop_operation_logger
+
     if not snapper_available():
         raise RuntimeError("snapper is not available.")
 
+    LOGGER.info("Deleting Snapper configuration: %s", name)
+    log(f"Deleting Snapper configuration {name}", "warning", "snapper")
     result = run_command(["snapper", "-c", name, "delete-config"], check=False)
+    if result.ok:
+        log(f"Deleted Snapper configuration {name}", "info", "snapper")
+    else:
+        log(f"Failed to delete Snapper configuration {name}", "error", "snapper")
     return result.ok
 
 
@@ -163,55 +209,81 @@ def systemd_unit_state(unit_name: str) -> str | None:
     return "not found"
 
 
-def enable_timer(unit_name: str) -> bool:
+def enable_timer(
+    unit_name: str,
+    *,
+    operation_log: OperationLogger | None = None,
+) -> bool:
     """Enable and start a systemd timer."""
+    log = operation_log or _noop_operation_logger
+
     if not command_exists("systemctl"):
         raise RuntimeError("systemctl is not available.")
 
+    LOGGER.info("Enabling timer: %s", unit_name)
+    log(f"Enabling timer {unit_name}", "info", "systemd")
     result = run_command(["systemctl", "enable", "--now", unit_name], check=False)
+    if result.ok:
+        log(f"Enabled timer {unit_name}", "info", "systemd")
+    else:
+        log(f"Failed to enable timer {unit_name}", "error", "systemd")
     return result.ok
 
 
-def disable_timer(unit_name: str) -> bool:
+def disable_timer(
+    unit_name: str,
+    *,
+    operation_log: OperationLogger | None = None,
+) -> bool:
     """Disable and stop a systemd timer."""
+    log = operation_log or _noop_operation_logger
+
     if not command_exists("systemctl"):
         raise RuntimeError("systemctl is not available.")
 
+    LOGGER.info("Disabling timer: %s", unit_name)
+    log(f"Disabling timer {unit_name}", "warning", "systemd")
     result = run_command(["systemctl", "disable", "--now", unit_name], check=False)
+    if result.ok:
+        log(f"Disabled timer {unit_name}", "info", "systemd")
+    else:
+        log(f"Failed to disable timer {unit_name}", "error", "systemd")
     return result.ok
 
 
-def enable_timeline_timer() -> bool:
+def enable_timeline_timer(*, operation_log: OperationLogger | None = None) -> bool:
     """Enable snapper-timeline.timer."""
-    return enable_timer("snapper-timeline.timer")
+    return enable_timer("snapper-timeline.timer", operation_log=operation_log)
 
 
-def enable_cleanup_timer() -> bool:
+def enable_cleanup_timer(*, operation_log: OperationLogger | None = None) -> bool:
     """Enable snapper-cleanup.timer."""
-    return enable_timer("snapper-cleanup.timer")
+    return enable_timer("snapper-cleanup.timer", operation_log=operation_log)
 
 
-def disable_timeline_timer() -> bool:
+def disable_timeline_timer(*, operation_log: OperationLogger | None = None) -> bool:
     """Disable snapper-timeline.timer."""
-    return disable_timer("snapper-timeline.timer")
+    return disable_timer("snapper-timeline.timer", operation_log=operation_log)
 
 
-def disable_cleanup_timer() -> bool:
+def disable_cleanup_timer(*, operation_log: OperationLogger | None = None) -> bool:
     """Disable snapper-cleanup.timer."""
-    return disable_timer("snapper-cleanup.timer")
+    return disable_timer("snapper-cleanup.timer", operation_log=operation_log)
 
 
 def snapshots_path_status(path: str | Path = "/.snapshots") -> tuple[bool, bool]:
     """Return whether /.snapshots exists and whether it is a directory."""
     snapshots = Path(path)
-    return snapshots.exists(), snapshots.is_dir()
+    exists, is_dir = snapshots.exists(), snapshots.is_dir()
+    LOGGER.info("Snapshots path status for %s: exists=%s is_dir=%s", snapshots, exists, is_dir)
+    return exists, is_dir
 
 
 def collect_snapper_status() -> SnapperStatus:
     """Collect a high-level Snapper status snapshot."""
     exists, is_dir = snapshots_path_status()
 
-    return SnapperStatus(
+    status = SnapperStatus(
         available=snapper_available(),
         version=get_snapper_version(),
         configs=list_configs(),
@@ -220,6 +292,13 @@ def collect_snapper_status() -> SnapperStatus:
         snapshots_path_exists=exists,
         snapshots_path_is_dir=is_dir,
     )
+    LOGGER.info(
+        "Collected Snapper status (available=%s, configs=%s, root_config=%s).",
+        status.available,
+        len(status.configs),
+        status.has_root_config,
+    )
+    return status
 
 
 def validate_snapper_layout(
@@ -244,4 +323,8 @@ def validate_snapper_layout(
     if status.available and not status.has_root_config:
         warnings.append("Snapper is available but no root configuration was detected.")
 
+    if warnings:
+        LOGGER.warning("Snapper layout validation produced %s warning(s).", len(warnings))
+    else:
+        LOGGER.info("Snapper layout validation produced no warnings.")
     return warnings
