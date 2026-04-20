@@ -1,9 +1,21 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
-from typing import Iterable
 
+from core.logging import get_logger
 from core.system import command_exists, run_command
+
+
+OperationLogger = Callable[[str, str, str], None]
+
+
+def _noop_operation_logger(message: str, level: str = "info", source: str = "packages") -> None:
+    """Default operation logger used when no callback is provided."""
+    return None
+
+
+LOGGER = get_logger("packages")
 
 
 @dataclass(slots=True)
@@ -222,13 +234,21 @@ def build_install_plan(requirements: Iterable[PackageRequirement]) -> InstallPla
     return plan
 
 
-def apt_update() -> bool:
+def apt_update(*, operation_log: OperationLogger | None = None) -> bool:
     """Run apt-get update."""
+    log = operation_log or _noop_operation_logger
     apt_status = get_apt_status()
     if not apt_status.can_install:
+        log("APT tooling is unavailable for package update.", "error", "apt")
         raise RuntimeError("APT tooling is not available on this system.")
 
+    LOGGER.info("Running apt-get update.")
+    log("Running apt-get update.", "info", "apt")
     result = run_command(["apt-get", "update"], check=False)
+    if result.ok:
+        log("apt-get update completed successfully.", "info", "apt")
+    else:
+        log("apt-get update failed.", "error", "apt")
     return result.ok
 
 
@@ -237,13 +257,17 @@ def apt_install(
     *,
     assume_yes: bool = True,
     no_recommends: bool = False,
+    operation_log: OperationLogger | None = None,
 ) -> bool:
     """Install packages using apt-get."""
+    log = operation_log or _noop_operation_logger
     if not packages:
+        log("No packages requested for installation.", "info", "apt")
         return True
 
     apt_status = get_apt_status()
     if not apt_status.can_install:
+        log("APT tooling is unavailable for package install.", "error", "apt")
         raise RuntimeError("APT tooling is not available on this system.")
 
     command = ["apt-get", "install"]
@@ -253,7 +277,13 @@ def apt_install(
         command.append("--no-install-recommends")
     command.extend(packages)
 
+    LOGGER.info("Running apt install for packages: %s", ", ".join(packages))
+    log(f"Installing packages: {', '.join(packages)}", "info", "apt")
     result = run_command(command, check=False)
+    if result.ok:
+        log("Package installation completed successfully.", "info", "apt")
+    else:
+        log("Package installation failed.", "error", "apt")
     return result.ok
 
 
@@ -263,22 +293,39 @@ def ensure_packages_installed(
     update_first: bool = True,
     assume_yes: bool = True,
     no_recommends: bool = False,
+    operation_log: OperationLogger | None = None,
 ) -> InstallPlan:
     """
     Ensure packages for the selected features are installed.
 
     Returns the computed install plan whether or not installation was needed.
     """
+    log = operation_log or _noop_operation_logger
     plan = build_install_plan(requirements)
 
+    LOGGER.info(
+        "Computed install plan (to_install=%s, already_installed=%s, missing_apt=%s).",
+        len(plan.to_install),
+        len(plan.already_installed),
+        plan.missing_apt_support,
+    )
+    log(
+        f"Computed install plan: {len(plan.to_install)} package(s) to install, "
+        f"{len(plan.already_installed)} already installed.",
+        "info",
+        "packages",
+    )
+
     if plan.is_empty:
+        log("All required packages are already installed.", "info", "packages")
         return plan
 
     if plan.missing_apt_support:
+        log("Cannot install packages automatically because APT support is unavailable.", "error", "packages")
         raise RuntimeError("Cannot install packages automatically because APT support is unavailable.")
 
     if update_first:
-        updated = apt_update()
+        updated = apt_update(operation_log=operation_log)
         if not updated:
             raise RuntimeError("apt-get update failed.")
 
@@ -286,11 +333,18 @@ def ensure_packages_installed(
         plan.to_install,
         assume_yes=assume_yes,
         no_recommends=no_recommends,
+        operation_log=operation_log,
     )
     if not installed:
         raise RuntimeError("apt-get install failed.")
 
-    return build_install_plan(requirements)
+    refreshed = build_install_plan(requirements)
+    log(
+        f"Installation refresh completed: {len(refreshed.to_install)} package(s) still pending.",
+        "info",
+        "packages",
+    )
+    return refreshed
 
 
 def summarize_package_checks(checks: Iterable[PackageCheckResult]) -> dict[str, list[str]]:
