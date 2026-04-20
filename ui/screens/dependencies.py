@@ -1,6 +1,3 @@
-**Arquivo:** `ui/screens/dependencies.py`
-
-```python id="7okti3"
 from __future__ import annotations
 
 from pathlib import Path
@@ -17,10 +14,10 @@ from core.packages import (
     summarize_package_checks,
 )
 from core.system import EnvironmentSnapshot
-from ui.common import DBLMScreen, safe_text, yes_no
+from ui.common import DBLMSectionScreen, safe_text, yes_no
 
 
-class DependenciesScreen(DBLMScreen):
+class DependenciesScreen(DBLMSectionScreen):
     """Dependency inspection screen for DBLM."""
 
     BINDINGS = [("r", "refresh_dependencies", "Refresh")]
@@ -30,7 +27,7 @@ class DependenciesScreen(DBLMScreen):
         self.snapshot: EnvironmentSnapshot | None = None
         self.last_error: str | None = None
 
-    def compose(self) -> ComposeResult:
+    def compose_body(self) -> ComposeResult:
         with Vertical(id="dependencies-root"):
             yield Static("[bold]Dependencies[/bold]", id="dependencies-title")
             yield Static(
@@ -179,4 +176,3 @@ class DependenciesScreen(DBLMScreen):
             notes.append("- Dependency checks look good for the current environment.")
 
         return "\n".join(notes)
-```
