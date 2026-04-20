@@ -7,6 +7,14 @@ from textual.containers import Container, Horizontal, Vertical
 from textual.reactive import reactive
 from textual.widgets import ListItem, ListView, Static
 
+from core.logging import (
+    append_log_line,
+    clear_log_buffer,
+    configure_logging,
+    get_logger,
+    get_log_buffer,
+    tail_log_buffer,
+)
 from core.state import StateManager
 from core.system import EnvironmentSnapshot, scan_environment
 from ui.common import DBLMSectionScreen, HelpScreen
@@ -15,6 +23,7 @@ from ui.screens.backups import BackupsScreen
 from ui.screens.boot import BootScreen
 from ui.screens.dashboard import DashboardScreen
 from ui.screens.dependencies import DependenciesScreen
+from ui.screens.logs import LogsScreen
 from ui.screens.plan import PlanScreen
 from ui.screens.rollback import RollbackScreen
 from ui.screens.snapper import SnapperScreen
@@ -32,6 +41,7 @@ MENU_ITEMS = [
     "Apply",
     "Revert",
     "Backups",
+    "Logs",
     "Help",
 ]
 
@@ -46,6 +56,7 @@ SCREEN_CLASSES = {
     "Apply": ApplyScreen,
     "Revert": RollbackScreen,
     "Backups": BackupsScreen,
+    "Logs": LogsScreen,
     "Help": HelpScreen,
 }
 
@@ -60,6 +71,7 @@ SECTION_PREVIEWS = {
     "Apply": "Review execution readiness before enabling destructive operations.",
     "Revert": "Inspect rollback metadata, restore options, and subvolume removal paths.",
     "Backups": "Inspect recorded backups, restore options, and delete operations.",
+    "Logs": "Show global application logs and future operation logs in a console-like view.",
     "Help": "Show keyboard shortcuts and navigation help.",
 }
 
@@ -102,11 +114,13 @@ class MainMenuScreen(DBLMSectionScreen):
         menu.index = 0
         self.selected_section = MENU_ITEMS[0]
         self._refresh_summary_box()
+        self.app.log_ui_event("Main menu mounted.")
 
     def action_cursor_up(self) -> None:
         menu = self.query_one("#menu", ListView)
         if menu.index is None:
             menu.index = 0
+            self.selected_section = MENU_ITEMS[0]
             return
         menu.index = max(0, menu.index - 1)
         self.selected_section = MENU_ITEMS[menu.index]
@@ -115,6 +129,7 @@ class MainMenuScreen(DBLMSectionScreen):
         menu = self.query_one("#menu", ListView)
         if menu.index is None:
             menu.index = 0
+            self.selected_section = MENU_ITEMS[0]
             return
         menu.index = min(len(MENU_ITEMS) - 1, menu.index + 1)
         self.selected_section = MENU_ITEMS[menu.index]
@@ -126,14 +141,20 @@ class MainMenuScreen(DBLMSectionScreen):
 
     def action_refresh_summary(self) -> None:
         self.app.invalidate_environment_cache()
+        self.app.log_ui_event("Main menu requested summary refresh.")
         self._refresh_summary_box()
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
+        """
+        Update the preview only.
+
+        Section opening is handled exclusively by Enter/global shortcuts so
+        navigation does not trigger duplicated screen opens.
+        """
         if event.list_view.id != "menu":
             return
         index = event.list_view.index or 0
         self.selected_section = MENU_ITEMS[index]
-        self._open_section(self.selected_section)
 
     def watch_selected_section(self, section: str) -> None:
         content = self.query_one("#content-panel", Static)
@@ -145,20 +166,34 @@ class MainMenuScreen(DBLMSectionScreen):
             "Keyboard shortcuts:\n"
             "- Enter: open selected section\n"
             "- R: refresh summary\n"
-            "- F1-F8: direct navigation\n"
-            "- A: Apply\n"
-            "- V: Revert\n"
-            "- M: Main menu\n"
-            "- B: Back\n"
-            "- Q: Quit"
+            "- F1 Dashboard\n"
+            "- F2 Dependencies\n"
+            "- F3 Subvolumes\n"
+            "- F4 Snapper\n"
+            "- F5 Boot\n"
+            "- F6 Plan\n"
+            "- F7 Backups\n"
+            "- F8 Logs\n"
+            "- H Help\n"
+            "- A Apply\n"
+            "- V Revert\n"
+            "- M Main menu\n"
+            "- B Back\n"
+            "- Q Quit"
         )
 
     def _open_section(self, section: str) -> None:
+        self.selected_section = section
+        self.app.log_ui_event(f"Opening section: {section}")
+
         if section == "Help":
             self.app.action_open_help()
             return
 
-        self.selected_section = section
+        if section == "Logs":
+            self.app.action_open_logs()
+            return
+
         screen_cls = SCREEN_CLASSES[section]
         self.app.open_section_screen(screen_cls)
 
@@ -185,7 +220,8 @@ class DBLMApp(App[None]):
         ("f5", "open_boot", "F5 Boot"),
         ("f6", "open_plan", "F6 Plan"),
         ("f7", "open_backups", "F7 Backups"),
-        ("f8", "open_help", "F8 Help"),
+        ("f8", "open_logs", "F8 Logs"),
+        ("h", "open_help", "Help"),
         ("a", "open_apply", "Apply"),
         ("v", "open_revert", "Revert"),
     ]
@@ -195,20 +231,30 @@ class DBLMApp(App[None]):
         self.state_file = Path(state_file)
         self.state_manager = StateManager(self.state_file)
         self._environment_cache: EnvironmentSnapshot | None = None
+        self._root_logger = configure_logging()
+        self.logger = get_logger("app")
+        self.logger.info("DBLM application initialized.")
+        self.logger.info("Using state file: %s", self.state_file)
 
     def on_mount(self) -> None:
+        self.logger.info("Application mounted.")
         self.push_screen(MainMenuScreen(state_file=self.state_file))
 
     def action_back(self) -> None:
         """Return to the previous screen when possible."""
         if len(self.screen_stack) > 1:
+            self.logger.info("Returning to previous screen.")
             self.pop_screen()
+        self.invalidate_environment_cache()
         self.call_after_refresh(self._refresh_main_menu_summary_if_visible)
 
     def action_main_menu(self) -> None:
         """Return to the main menu screen."""
+        if len(self.screen_stack) > 1:
+            self.logger.info("Returning to main menu.")
         while len(self.screen_stack) > 1:
             self.pop_screen()
+        self.invalidate_environment_cache()
         self.call_after_refresh(self._refresh_main_menu_summary_if_visible)
 
     def action_open_dashboard(self) -> None:
@@ -232,6 +278,9 @@ class DBLMApp(App[None]):
     def action_open_backups(self) -> None:
         self.open_section_screen(BackupsScreen)
 
+    def action_open_logs(self) -> None:
+        self.open_section_screen(LogsScreen)
+
     def action_open_help(self) -> None:
         self.open_section_screen(HelpScreen)
 
@@ -248,6 +297,8 @@ class DBLMApp(App[None]):
         Keeps the main menu as the base screen and replaces the currently open
         section instead of stacking many section screens.
         """
+        self.logger.info("Request to open section screen: %s", screen_cls.__name__)
+
         while len(self.screen_stack) > 1:
             self.pop_screen()
 
@@ -264,12 +315,31 @@ class DBLMApp(App[None]):
         Set force=True to rescan the system.
         """
         if force or self._environment_cache is None:
+            self.logger.info("Scanning environment (force=%s).", force)
             self._environment_cache = scan_environment()
         return self._environment_cache
 
     def invalidate_environment_cache(self) -> None:
         """Clear the cached environment snapshot."""
+        self.logger.info("Invalidating environment cache.")
         self._environment_cache = None
+
+    def get_log_entries(self, *, limit: int = 500) -> list[str]:
+        """Return recent log entries for the UI."""
+        return tail_log_buffer(limit=limit)
+
+    def clear_logs(self) -> None:
+        """Clear the in-memory UI log buffer."""
+        clear_log_buffer()
+        self.logger.info("Application requested log buffer clear.")
+
+    def log_ui_event(self, message: str) -> None:
+        """Convenience helper for UI-originated log messages."""
+        append_log_line(message, logger_name="ui")
+
+    def get_full_log_buffer(self) -> list[str]:
+        """Return the full in-memory log buffer."""
+        return get_log_buffer()
 
     def _refresh_main_menu_summary_if_visible(self) -> None:
         if isinstance(self.screen, MainMenuScreen):
@@ -277,7 +347,7 @@ class DBLMApp(App[None]):
                 summary = self.screen.query_one("#summary-box", SummaryBox)
                 summary.refresh_summary()
             except Exception:
-                pass
+                self.logger.exception("Failed to refresh main menu summary box.", exc_info=True)
 
 
 def main() -> None:
