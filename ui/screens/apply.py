@@ -11,7 +11,11 @@ from ui.common import DBLMSectionScreen, safe_text
 
 
 class ApplyScreen(DBLMSectionScreen):
-    BINDINGS = [("r", "refresh_apply", "Refresh")]
+    BINDINGS = [
+        ("r", "refresh_apply", "Refresh"),
+        ("l", "open_apply_logs", "Logs"),
+        ("s", "start_apply_simulation", "Start"),
+    ]
 
     def __init__(self, state_file: str | Path = "data/state.json") -> None:
         super().__init__(state_file=state_file)
@@ -28,6 +32,8 @@ class ApplyScreen(DBLMSectionScreen):
 
             with Horizontal(id="apply-actions"):
                 yield Button("Refresh", id="refresh-apply", variant="primary")
+                yield Button("Open Logs", id="open-apply-logs")
+                yield Button("Start Apply Session", id="start-apply-session", variant="success")
 
             with Horizontal(id="apply-grid"):
                 with Vertical(id="apply-left"):
@@ -55,10 +61,154 @@ class ApplyScreen(DBLMSectionScreen):
         if event.button.id == "refresh-apply":
             self.log_screen_event("Refresh requested from apply button.")
             self.refresh_apply()
+        elif event.button.id == "open-apply-logs":
+            self.action_open_apply_logs()
+        elif event.button.id == "start-apply-session":
+            self.action_start_apply_simulation()
 
     def action_refresh_apply(self) -> None:
         self.log_screen_event("Refresh requested from apply shortcut.")
         self.refresh_apply()
+
+    def action_open_apply_logs(self) -> None:
+        self.log_screen_event("Operation logs requested from apply screen.")
+        app = getattr(self, "app", None)
+        if app is not None and hasattr(app, "open_operation_logs"):
+            app.open_operation_logs("Apply plan")
+
+    def action_start_apply_simulation(self) -> None:
+        """
+        Start an installer-style simulated apply session.
+
+        This prepares the UX and logging pipeline for the real execution engine
+        that will be wired in later phases.
+        """
+        self.log_screen_event("Apply simulation requested.")
+        app = getattr(self, "app", None)
+        if app is None:
+            return
+
+        latest_run = self.state_manager.get_latest_run()
+        summary = self.state_manager.summarize()
+        snapshot = self.snapshot
+
+        if hasattr(app, "start_operation_log"):
+            app.start_operation_log("Apply plan")
+
+        if hasattr(app, "append_operation_log"):
+            app.append_operation_log("Preparing execution session.", level="info", source="apply")
+            app.append_operation_log(
+                f"Root filesystem detected: {safe_text(snapshot.root_fs.fstype) if snapshot else 'unknown'}",
+                level="info",
+                source="apply",
+            )
+            app.append_operation_log(
+                f"Required dependencies OK: {'yes' if snapshot and snapshot.dependencies.required_ok else 'no'}",
+                level="info",
+                source="apply",
+            )
+            app.append_operation_log(
+                f"Warnings detected: {len(snapshot.warnings) if snapshot else 0}",
+                level="info",
+                source="apply",
+            )
+            app.append_operation_log(
+                f"Recorded runs: {summary.get('runs_total', 0)} | "
+                f"Recorded backups: {summary.get('backups_total', 0)}",
+                level="info",
+                source="apply",
+            )
+
+            if latest_run is None:
+                app.append_operation_log(
+                    "No recorded run exists yet. Execution is limited to dry session setup.",
+                    level="warning",
+                    source="planner",
+                )
+            else:
+                app.append_operation_log(
+                    f"Latest run: {latest_run.run_id}",
+                    level="info",
+                    source="planner",
+                )
+                app.append_operation_log(
+                    f"Latest run status: {latest_run.status}",
+                    level="info",
+                    source="planner",
+                )
+                app.append_operation_log(
+                    f"Recorded actions in latest run: {len(latest_run.actions)}",
+                    level="info",
+                    source="planner",
+                )
+                for action in latest_run.actions[:20]:
+                    app.append_operation_log(
+                        f"Planned target={action.target} subvolume={action.subvolume or 'n/a'} "
+                        f"status={action.status}",
+                        level="info",
+                        source="planner",
+                    )
+
+            if snapshot is None:
+                app.append_operation_log(
+                    "Environment snapshot is unavailable.",
+                    level="error",
+                    source="apply",
+                )
+            elif snapshot.root_fs.fstype != "btrfs":
+                app.append_operation_log(
+                    "Execution blocked: root filesystem is not Btrfs.",
+                    level="error",
+                    source="validator",
+                )
+            elif not snapshot.dependencies.required_ok:
+                missing = ", ".join(snapshot.dependencies.missing_required) or "unknown"
+                app.append_operation_log(
+                    f"Execution blocked: missing required commands: {missing}",
+                    level="error",
+                    source="validator",
+                )
+            elif not snapshot.is_root:
+                app.append_operation_log(
+                    "Execution blocked: application is not running as root.",
+                    level="error",
+                    source="validator",
+                )
+            else:
+                app.append_operation_log(
+                    "Environment validation passed.",
+                    level="info",
+                    source="validator",
+                )
+                app.append_operation_log(
+                    "This phase is currently running in installer-style simulation mode only.",
+                    level="warning",
+                    source="apply",
+                )
+                app.append_operation_log(
+                    "Real filesystem operations will be connected in the next step.",
+                    level="info",
+                    source="apply",
+                )
+
+        if hasattr(app, "finish_operation_log"):
+            ready = bool(
+                snapshot
+                and snapshot.root_fs.fstype == "btrfs"
+                and snapshot.dependencies.required_ok
+                and snapshot.is_root
+            )
+            app.finish_operation_log(
+                success=ready,
+                message=(
+                    "Apply simulation completed. System is eligible for real execution wiring."
+                    if ready
+                    else "Apply simulation completed. Blocking conditions were detected."
+                ),
+            )
+
+        if hasattr(app, "open_operation_logs"):
+            app.open_operation_logs("Apply plan")
 
     def refresh_apply(self) -> None:
         try:
@@ -159,6 +309,12 @@ class ApplyScreen(DBLMSectionScreen):
         )
 
     def _build_log_preview_text(self, latest_run) -> str:
+        app = getattr(self, "app", None)
+        if app is not None and hasattr(app, "get_operation_log_entries"):
+            operation_lines = app.get_operation_log_entries(limit=8)
+            if operation_lines:
+                return "[bold]Execution log preview[/bold]\n\n" + "\n".join(operation_lines)
+
         if latest_run is None or not latest_run.actions:
             return "[bold]Execution log preview[/bold]\n\nNo actions recorded yet."
 
@@ -183,6 +339,7 @@ class ApplyScreen(DBLMSectionScreen):
             notes.append("- No run has been recorded yet. Planning should happen before apply.")
         if latest_run is not None and latest_run.status == "failed":
             notes.append("- The latest run failed and should be reviewed before retrying.")
+        notes.append("- Use 'Start Apply Session' to open installer-style operation logs.")
         if not notes:
             notes.append("- Environment looks suitable for wiring the real execution pipeline.")
 
