@@ -48,22 +48,27 @@ class RollbackScreen(DBLMSectionScreen):
             yield Static(id="rollback-notes")
 
     def on_mount(self) -> None:
+        self.log_screen_event("Mounted rollback screen.")
         self.refresh_rollback()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "refresh-rollback":
+            self.log_screen_event("Refresh requested from rollback button.")
             self.refresh_rollback()
 
     def action_refresh_rollback(self) -> None:
+        self.log_screen_event("Refresh requested from rollback shortcut.")
         self.refresh_rollback()
 
     def refresh_rollback(self) -> None:
         try:
-            self.snapshot = self.get_environment(force=True)
+            self.snapshot = self.refresh_environment()
             self.last_error = None
+            self.log_screen_event("Rollback environment refresh completed.")
         except Exception as exc:  # pragma: no cover
             self.snapshot = None
             self.last_error = str(exc)
+            self.log_screen_error(f"Rollback refresh failed: {exc}")
 
         self._render()
 
@@ -85,6 +90,13 @@ class RollbackScreen(DBLMSectionScreen):
 
         latest_run = self.state_manager.get_latest_run()
         restorable_backups = self.state_manager.list_restorable_backups()
+
+        self.log_screen_event(
+            "Rendering rollback data "
+            f"(latest_run={'yes' if latest_run is not None else 'no'}, "
+            f"actions={len(latest_run.actions) if latest_run else 0}, "
+            f"restorable_backups={len(restorable_backups)})."
+        )
 
         run_box.update(self._build_run_text(latest_run))
         actions_box.update(self._build_actions_text(latest_run))
