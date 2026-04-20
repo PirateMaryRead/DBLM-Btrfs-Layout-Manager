@@ -8,7 +8,7 @@ from textual.containers import Horizontal, Vertical
 from textual.widgets import Button, Static
 
 from core.system import EnvironmentSnapshot
-from ui.common import DBLMScreen, safe_text, yes_no
+from ui.common import DBLMSectionScreen, safe_text, yes_no
 
 
 class InfoCard(Static):
@@ -17,7 +17,7 @@ class InfoCard(Static):
     DEFAULT_CLASSES = "dashboard-card"
 
 
-class DashboardScreen(DBLMScreen):
+class DashboardScreen(DBLMSectionScreen):
     """Dashboard screen for DBLM."""
 
     BINDINGS = [("r", "refresh_dashboard", "Refresh")]
@@ -27,7 +27,7 @@ class DashboardScreen(DBLMScreen):
         self.snapshot: EnvironmentSnapshot | None = None
         self.last_error: str | None = None
 
-    def compose(self) -> ComposeResult:
+    def compose_body(self) -> ComposeResult:
         with Vertical(id="dashboard-root"):
             yield Static("[bold]DBLM — Btrfs Layout Manager[/bold]", id="dashboard-title")
             yield Static(
