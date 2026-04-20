@@ -6,6 +6,7 @@ from textual.app import ComposeResult
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Static
 
+from core.logging import get_logger, log_exception
 from core.state import StateManager
 from core.system import EnvironmentSnapshot, scan_environment
 
@@ -31,12 +32,14 @@ class DBLMScreen(Screen[None]):
     - access to the app-level StateManager when available
     - access to cached environment data when available
     - a safe fallback for standalone screen usage
+    - a screen-specific logger
     """
 
     def __init__(self, state_file: str | Path = "data/state.json") -> None:
         super().__init__()
         self._state_file = Path(state_file)
         self._fallback_state_manager: StateManager | None = None
+        self.logger = get_logger(f"ui.{self.__class__.__name__.lower()}")
 
     @property
     def state_manager(self) -> StateManager:
@@ -73,6 +76,22 @@ class DBLMScreen(Screen[None]):
         if app is not None and hasattr(app, "invalidate_environment_cache"):
             app.invalidate_environment_cache()
 
+    def refresh_environment(self) -> EnvironmentSnapshot:
+        """Force-refresh and return the environment snapshot, logging the event."""
+        self.log_screen_event("Refreshing environment.")
+        return self.get_environment(force=True)
+
+    def log_screen_event(self, message: str) -> None:
+        """Write a UI-level log entry for this screen."""
+        self.logger.info(message)
+        app = getattr(self, "app", None)
+        if app is not None and hasattr(app, "log_ui_event"):
+            app.log_ui_event(f"{self.__class__.__name__}: {message}")
+
+    def log_screen_error(self, message: str) -> None:
+        """Log an exception-oriented message for this screen."""
+        log_exception(f"{self.__class__.__name__}: {message}", logger_name="ui.errors")
+
 
 class DBLMSectionScreen(DBLMScreen):
     """
@@ -93,6 +112,9 @@ class DBLMSectionScreen(DBLMScreen):
         """Subclasses must provide the section body."""
         yield Static("Section body not implemented.")
 
+    def on_mount(self) -> None:
+        self.log_screen_event("Mounted section screen.")
+
 
 class HelpScreen(DBLMSectionScreen):
     """Keyboard help screen for DBLM."""
@@ -112,14 +134,18 @@ class HelpScreen(DBLMSectionScreen):
             "F5  Boot\n"
             "F6  Plan\n"
             "F7  Backups\n"
-            "F8  Help\n\n"
+            "F8  Logs\n\n"
             "[bold]Additional shortcuts[/bold]\n\n"
+            "H   Help\n"
             "A   Apply\n"
             "V   Revert\n"
             "M   Main menu\n"
             "B   Back\n"
             "R   Refresh current screen\n"
             "Q   Quit\n\n"
+            "[bold]Logs[/bold]\n\n"
+            "- The Logs screen shows application logs from the in-memory buffer.\n"
+            "- Future apply/revert operations can reuse the same screen in operation mode.\n\n"
             "[bold]Notes[/bold]\n\n"
             "- Function keys are reserved for the most frequently used sections.\n"
             "- Apply and Revert remain directly accessible with letter shortcuts.\n"
