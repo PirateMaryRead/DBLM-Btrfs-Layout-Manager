@@ -3,12 +3,16 @@ from __future__ import annotations
 from pathlib import Path
 
 from textual.app import ComposeResult
+from textual.containers import Vertical
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Static
 
 from core.logging import get_logger, log_exception
 from core.state import StateManager
 from core.system import EnvironmentSnapshot, scan_environment
+
+
+DEFAULT_UI_STATE_FILE = Path(__file__).resolve().parent.parent / "data" / "state.json"
 
 
 def safe_text(value: object | None, fallback: str = "unknown") -> str:
@@ -35,7 +39,7 @@ class DBLMScreen(Screen[None]):
     - a screen-specific logger
     """
 
-    def __init__(self, state_file: str | Path = "data/state.json") -> None:
+    def __init__(self, state_file: str | Path = DEFAULT_UI_STATE_FILE) -> None:
         super().__init__()
         self._state_file = Path(state_file)
         self._fallback_state_manager: StateManager | None = None
@@ -82,11 +86,8 @@ class DBLMScreen(Screen[None]):
         return self.get_environment(force=True)
 
     def log_screen_event(self, message: str) -> None:
-        """Write a UI-level log entry for this screen."""
+        """Write a screen-level log entry."""
         self.logger.info(message)
-        app = getattr(self, "app", None)
-        if app is not None and hasattr(app, "log_ui_event"):
-            app.log_ui_event(f"{self.__class__.__name__}: {message}")
 
     def log_screen_error(self, message: str) -> None:
         """Log an exception-oriented message for this screen."""
@@ -120,35 +121,36 @@ class HelpScreen(DBLMSectionScreen):
     """Keyboard help screen for DBLM."""
 
     def compose_body(self) -> ComposeResult:
-        yield Static("[bold]Help[/bold]", id="help-title")
-        yield Static(
-            "Keyboard shortcuts available across DBLM screens.",
-            id="help-subtitle",
-        )
-        yield Static(
-            "[bold]Function keys[/bold]\n\n"
-            "F1  Dashboard\n"
-            "F2  Dependencies\n"
-            "F3  Subvolumes\n"
-            "F4  Snapper\n"
-            "F5  Boot\n"
-            "F6  Plan\n"
-            "F7  Backups\n"
-            "F8  Logs\n\n"
-            "[bold]Additional shortcuts[/bold]\n\n"
-            "H   Help\n"
-            "A   Apply\n"
-            "V   Revert\n"
-            "M   Main menu\n"
-            "B   Back\n"
-            "R   Refresh current screen\n"
-            "Q   Quit\n\n"
-            "[bold]Logs[/bold]\n\n"
-            "- The Logs screen shows application logs from the in-memory buffer.\n"
-            "- Future apply/revert operations can reuse the same screen in operation mode.\n\n"
-            "[bold]Notes[/bold]\n\n"
-            "- Function keys are reserved for the most frequently used sections.\n"
-            "- Apply and Revert remain directly accessible with letter shortcuts.\n"
-            "- The footer shows currently available bindings.",
-            id="help-content",
-        )
+        with Vertical(id="help-root"):
+            yield Static("[bold]Help[/bold]", id="help-title")
+            yield Static(
+                "Keyboard shortcuts available across DBLM screens.",
+                id="help-subtitle",
+            )
+            yield Static(
+                "[bold]Function keys[/bold]\n\n"
+                "F1  Dashboard\n"
+                "F2  Dependencies\n"
+                "F3  Subvolumes\n"
+                "F4  Snapper\n"
+                "F5  Boot\n"
+                "F6  Plan\n"
+                "F7  Backups\n"
+                "F8  Logs\n\n"
+                "[bold]Additional shortcuts[/bold]\n\n"
+                "H   Help\n"
+                "A   Apply\n"
+                "V   Revert\n"
+                "M   Main menu\n"
+                "B   Back\n"
+                "R   Refresh current screen\n"
+                "Q   Quit\n\n"
+                "[bold]Logs[/bold]\n\n"
+                "- The Logs screen shows application logs from the in-memory buffer.\n"
+                "- Future apply/revert operations can reuse the same screen in operation mode.\n\n"
+                "[bold]Notes[/bold]\n\n"
+                "- Function keys are reserved for the most frequently used sections.\n"
+                "- Apply and Revert remain directly accessible with letter shortcuts.\n"
+                "- The footer shows currently available bindings.",
+                id="help-content",
+            )
