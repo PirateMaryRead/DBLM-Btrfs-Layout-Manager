@@ -50,22 +50,27 @@ class SnapperScreen(DBLMSectionScreen):
             yield Static(id="snapper-notes")
 
     def on_mount(self) -> None:
+        self.log_screen_event("Mounted snapper screen.")
         self.refresh_snapper()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "refresh-snapper":
+            self.log_screen_event("Refresh requested from snapper button.")
             self.refresh_snapper()
 
     def action_refresh_snapper(self) -> None:
+        self.log_screen_event("Refresh requested from snapper shortcut.")
         self.refresh_snapper()
 
     def refresh_snapper(self) -> None:
         try:
-            self.snapshot = self.get_environment(force=True)
+            self.snapshot = self.refresh_environment()
             self.last_error = None
+            self.log_screen_event("Snapper environment refresh completed.")
         except Exception as exc:  # pragma: no cover
             self.snapshot = None
             self.last_error = str(exc)
+            self.log_screen_error(f"Snapper refresh failed: {exc}")
 
         self._render()
 
@@ -85,10 +90,22 @@ class SnapperScreen(DBLMSectionScreen):
             notes_box.update("Refresh the screen after fixing the environment issue.")
             return
 
+        configs = self._snapper_configs() if command_exists("snapper") else []
+        timeline_state = self._systemd_unit_state("snapper-timeline.timer")
+        cleanup_state = self._systemd_unit_state("snapper-cleanup.timer")
+
+        self.log_screen_event(
+            "Rendering snapper data "
+            f"(available={command_exists('snapper')}, "
+            f"configs={len(configs)}, "
+            f"timeline={safe_text(timeline_state)}, "
+            f"cleanup={safe_text(cleanup_state)})."
+        )
+
         status_box.update(self._build_status_text())
-        configs_box.update(self._build_configs_text())
+        configs_box.update(self._build_configs_text(configs=configs))
         layout_box.update(self._build_layout_text())
-        timers_box.update(self._build_timers_text())
+        timers_box.update(self._build_timers_text(timeline=timeline_state, cleanup=cleanup_state))
         notes_box.update(self._build_notes_text())
 
     def _build_status_text(self) -> str:
@@ -102,14 +119,16 @@ class SnapperScreen(DBLMSectionScreen):
             f"Can inspect configs: {yes_no(has_snapper)}"
         )
 
-    def _build_configs_text(self) -> str:
+    def _build_configs_text(self, configs: list[str] | None = None) -> str:
         if not command_exists("snapper"):
             return (
                 "[bold]Configurations[/bold]\n\n"
                 "Snapper is not installed or not available in PATH."
             )
 
-        configs = self._snapper_configs()
+        if configs is None:
+            configs = self._snapper_configs()
+
         if not configs:
             return (
                 "[bold]Configurations[/bold]\n\n"
@@ -140,9 +159,11 @@ class SnapperScreen(DBLMSectionScreen):
             "- /var/tmp"
         )
 
-    def _build_timers_text(self) -> str:
-        timeline = self._systemd_unit_state("snapper-timeline.timer")
-        cleanup = self._systemd_unit_state("snapper-cleanup.timer")
+    def _build_timers_text(self, timeline: str | None = None, cleanup: str | None = None) -> str:
+        if timeline is None:
+            timeline = self._systemd_unit_state("snapper-timeline.timer")
+        if cleanup is None:
+            cleanup = self._systemd_unit_state("snapper-cleanup.timer")
 
         return (
             "[bold]Timers[/bold]\n\n"
@@ -176,6 +197,7 @@ class SnapperScreen(DBLMSectionScreen):
     def _snapper_version(self) -> str | None:
         result = run_command(["snapper", "--version"], check=False)
         if not result.ok:
+            self.log_screen_event("Failed to query snapper version.")
             return None
         first_line = result.stdout.splitlines()[0] if result.stdout else ""
         return first_line.strip() or None
