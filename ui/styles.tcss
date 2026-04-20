@@ -83,7 +83,7 @@ Button {
     content-align: left top;
 }
 
-/* Generic screen layout */
+/* Generic section layout */
 
 #dashboard-root,
 #dependencies-root,
@@ -93,7 +93,9 @@ Button {
 #plan-root,
 #apply-root,
 #rollback-root,
-#backups-root {
+#backups-root,
+#logs-root,
+#help-root {
     layout: vertical;
     height: 1fr;
     padding: 1;
@@ -107,7 +109,9 @@ Button {
 #plan-title,
 #apply-title,
 #rollback-title,
-#backups-title {
+#backups-title,
+#logs-title,
+#help-title {
     text-style: bold;
     margin-bottom: 1;
 }
@@ -120,7 +124,9 @@ Button {
 #plan-subtitle,
 #apply-subtitle,
 #rollback-subtitle,
-#backups-subtitle {
+#backups-subtitle,
+#logs-subtitle,
+#help-subtitle {
     color: $text-muted;
     margin-bottom: 1;
 }
@@ -133,7 +139,8 @@ Button {
 #plan-actions,
 #apply-actions,
 #rollback-actions,
-#backups-actions {
+#backups-actions,
+#logs-actions {
     height: auto;
     margin-bottom: 1;
 }
@@ -186,6 +193,20 @@ Button {
     padding: 1;
 }
 
+/* Help screen */
+
+#help-root {
+    padding: 1;
+}
+
+#help-content {
+    height: 1fr;
+    border: round $primary;
+    background: $panel;
+    padding: 1 2;
+    overflow: auto;
+}
+
 /* Subvolumes screen specifics */
 
 #subvolumes-left,
@@ -216,6 +237,31 @@ Button {
 #apply-root Static,
 #rollback-root Static,
 #backups-root Static {
+    overflow: auto;
+}
+
+/* Logs screen */
+
+#logs-root {
+    padding: 1;
+}
+
+#logs-status {
+    height: auto;
+    min-height: 7;
+    margin-bottom: 1;
+    border: round $accent;
+    background: $panel;
+    padding: 1;
+    overflow: auto;
+}
+
+#logs-view {
+    height: 1fr;
+    border: round $primary;
+    background: $panel-darken-1;
+    color: $text;
+    padding: 1;
     overflow: auto;
 }
 
