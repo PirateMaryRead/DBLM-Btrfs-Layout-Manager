@@ -68,19 +68,24 @@ class SubvolumeScreen(DBLMSectionScreen):
                     yield Static(id="selection-summary")
 
     def on_mount(self) -> None:
+        self.log_screen_event("Mounted subvolumes screen.")
         self._load_profiles()
         self.refresh_data()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id
         if button_id == "refresh-subvolumes":
+            self.log_screen_event("Refresh requested from subvolumes button.")
             self.refresh_data()
         elif button_id == "mark-defaults":
+            self.log_screen_event("Mark defaults requested from subvolumes button.")
             self.action_mark_default()
         elif button_id == "clear-selection":
+            self.log_screen_event("Clear selection requested from subvolumes button.")
             self.action_clear_selection()
 
     def action_refresh(self) -> None:
+        self.log_screen_event("Refresh requested from subvolumes shortcut.")
         self.refresh_data()
 
     def action_mark_default(self) -> None:
@@ -92,6 +97,9 @@ class SubvolumeScreen(DBLMSectionScreen):
         )
         self.selected_keys = {target.key for target in defaults}
         self.selected_profile = "custom"
+        self.log_screen_event(
+            f"Marked default targets (count={len(self.selected_keys)}, home_supported={include_home})."
+        )
         self._render_targets()
         self._render_selected_target()
         self._render_summary()
@@ -99,6 +107,7 @@ class SubvolumeScreen(DBLMSectionScreen):
     def action_clear_selection(self) -> None:
         self.selected_keys.clear()
         self.selected_profile = "custom"
+        self.log_screen_event("Cleared subvolume target selection.")
         self._render_targets()
         self._render_selected_target()
         self._render_summary()
@@ -114,11 +123,13 @@ class SubvolumeScreen(DBLMSectionScreen):
 
     def refresh_data(self) -> None:
         try:
-            self.snapshot = self.get_environment(force=True)
+            self.snapshot = self.refresh_environment()
             self.last_error = None
+            self.log_screen_event("Subvolumes environment refresh completed.")
         except Exception as exc:  # pragma: no cover - defensive UI path
             self.snapshot = None
             self.last_error = str(exc)
+            self.log_screen_error(f"Subvolumes refresh failed: {exc}")
 
         self._render_profiles()
         self._render_targets()
@@ -134,6 +145,7 @@ class SubvolumeScreen(DBLMSectionScreen):
             profile_list.append(ListItem(Static(profile.name)))
 
         profile_list.index = 0
+        self.log_screen_event(f"Loaded profile list (count={len(list_profiles()) + 1}).")
 
     def _render_profiles(self) -> None:
         profile_list = self.query_one("#profile-list", ListView)
@@ -148,6 +160,7 @@ class SubvolumeScreen(DBLMSectionScreen):
         if not targets:
             target_list.append(ListItem(Static("No targets available")))
             self.selected_target_key = None
+            self.log_screen_event("No subvolume targets available for current environment.")
             return
 
         for target in targets:
@@ -160,6 +173,10 @@ class SubvolumeScreen(DBLMSectionScreen):
 
         if target_list.index is None:
             target_list.index = 0
+
+        self.log_screen_event(
+            f"Rendered subvolume targets (available={len(targets)}, selected={len(self.selected_keys)})."
+        )
 
     def _render_selected_target(self) -> None:
         details = self.query_one("#target-details", Static)
@@ -236,9 +253,14 @@ class SubvolumeScreen(DBLMSectionScreen):
             )
         )
 
+        self.log_screen_event(
+            f"Updated subvolume summary (profile={profile_name}, selected={len(selected_targets)})."
+        )
+
     def _apply_profile_from_list(self, index: int) -> None:
         if index == 0:
             self.selected_profile = "custom"
+            self.log_screen_event("Selected custom profile.")
             self._render_summary()
             return
 
@@ -253,6 +275,9 @@ class SubvolumeScreen(DBLMSectionScreen):
 
         self.selected_profile = profile.key
         self.selected_keys = {target.key for target in targets}
+        self.log_screen_event(
+            f"Applied profile {profile.key} (targets={len(self.selected_keys)}, home_supported={include_home})."
+        )
         self._render_targets()
         self._render_selected_target()
         self._render_summary()
@@ -267,14 +292,19 @@ class SubvolumeScreen(DBLMSectionScreen):
         self.selected_profile = "custom"
 
         if target.requires_btrfs_home and not self._home_support_enabled():
+            self.log_screen_event(
+                f"Target toggle blocked for {target.key}: requires Btrfs /home."
+            )
             self._render_selected_target()
             self._render_summary()
             return
 
         if target.key in self.selected_keys:
             self.selected_keys.remove(target.key)
+            self.log_screen_event(f"Deselected target: {target.key}")
         else:
             self.selected_keys.add(target.key)
+            self.log_screen_event(f"Selected target: {target.key}")
 
         self._render_targets()
         self._render_selected_target()
