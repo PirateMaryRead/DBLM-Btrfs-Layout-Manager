@@ -49,22 +49,27 @@ class PlanScreen(DBLMSectionScreen):
             yield Static(id="plan-notes")
 
     def on_mount(self) -> None:
+        self.log_screen_event("Mounted plan screen.")
         self.refresh_plan()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "refresh-plan":
+            self.log_screen_event("Refresh requested from plan button.")
             self.refresh_plan()
 
     def action_refresh_plan(self) -> None:
+        self.log_screen_event("Refresh requested from plan shortcut.")
         self.refresh_plan()
 
     def refresh_plan(self) -> None:
         try:
-            self.snapshot = self.get_environment(force=True)
+            self.snapshot = self.refresh_environment()
             self.last_error = None
+            self.log_screen_event("Plan environment refresh completed.")
         except Exception as exc:  # pragma: no cover
             self.snapshot = None
             self.last_error = str(exc)
+            self.log_screen_error(f"Plan refresh failed: {exc}")
 
         self._render()
 
@@ -86,6 +91,12 @@ class PlanScreen(DBLMSectionScreen):
 
         summary = self.state_manager.summarize()
         available_targets = self._available_targets()
+
+        self.log_screen_event(
+            "Rendering plan data "
+            f"(targets={len(available_targets)}, warnings={len(self.snapshot.warnings)}, "
+            f"runs={summary.get('runs_total', 0)}, backups={summary.get('backups_total', 0)})."
+        )
 
         overview.update(self._build_overview_text(summary, available_targets))
         filesystems.update(self._build_filesystem_text())
