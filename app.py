@@ -8,7 +8,6 @@ from textual.reactive import reactive
 from textual.widgets import ListItem, ListView, Static
 
 from core.logging import (
-    append_log_line,
     clear_log_buffer,
     configure_logging,
     get_logger,
@@ -16,7 +15,7 @@ from core.logging import (
 )
 from core.state import StateManager
 from core.system import EnvironmentSnapshot, scan_environment
-from ui.common import DBLMSectionScreen, HelpScreen
+from ui.common import DBLMSectionScreen, DEFAULT_UI_STATE_FILE, HelpScreen
 from ui.screens.apply import ApplyScreen
 from ui.screens.backups import BackupsScreen
 from ui.screens.boot import BootScreen
@@ -28,6 +27,10 @@ from ui.screens.rollback import RollbackScreen
 from ui.screens.snapper import SnapperScreen
 from ui.screens.subvolumes import SubvolumeScreen
 from ui.widgets.summary_box import SummaryBox
+
+
+APP_ROOT = Path(__file__).resolve().parent
+DEFAULT_APP_STATE_FILE = APP_ROOT / "data" / "state.json"
 
 
 MENU_ITEMS = [
@@ -113,7 +116,7 @@ class MainMenuScreen(DBLMSectionScreen):
         menu.index = 0
         self.selected_section = MENU_ITEMS[0]
         self._refresh_summary_box()
-        self.app.log_ui_event("Main menu mounted.")
+        self.log_screen_event("Main menu mounted.")
 
     def action_cursor_up(self) -> None:
         menu = self.query_one("#menu", ListView)
@@ -140,7 +143,7 @@ class MainMenuScreen(DBLMSectionScreen):
 
     def action_refresh_summary(self) -> None:
         self.app.invalidate_environment_cache()
-        self.app.log_ui_event("Main menu requested summary refresh.")
+        self.log_screen_event("Main menu requested summary refresh.")
         self._refresh_summary_box()
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
@@ -183,7 +186,7 @@ class MainMenuScreen(DBLMSectionScreen):
 
     def _open_section(self, section: str) -> None:
         self.selected_section = section
-        self.app.log_ui_event(f"Opening section: {section}")
+        self.log_screen_event(f"Opening section: {section}")
 
         if section == "Help":
             self.app.action_open_help()
@@ -225,7 +228,7 @@ class DBLMApp(App[None]):
         ("v", "open_revert", "Revert"),
     ]
 
-    def __init__(self, state_file: str | Path = "data/state.json") -> None:
+    def __init__(self, state_file: str | Path = DEFAULT_APP_STATE_FILE) -> None:
         super().__init__()
         self.state_file = Path(state_file)
         self.state_manager = StateManager(self.state_file)
@@ -328,14 +331,9 @@ class DBLMApp(App[None]):
         """Return recent log entries for the UI."""
         return tail_log_buffer(limit=limit)
 
-    def clear_logs(self) -> None:
-        """Clear the in-memory UI log buffer."""
-        clear_log_buffer()
-        self.dblm_logger.info("Application requested log buffer clear.")
-
-    def log_ui_event(self, message: str) -> None:
-        """Convenience helper for UI-originated log messages."""
-        append_log_line(message, logger_name="ui")
+    def clear_logs(self) -> int:
+        """Clear the in-memory UI log buffer and return the number of removed lines."""
+        return clear_log_buffer()
 
     def _refresh_main_menu_summary_if_visible(self) -> None:
         if isinstance(self.screen, MainMenuScreen):
