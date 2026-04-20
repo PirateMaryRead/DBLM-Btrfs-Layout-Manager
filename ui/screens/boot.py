@@ -50,22 +50,27 @@ class BootScreen(DBLMSectionScreen):
             yield Static(id="boot-notes")
 
     def on_mount(self) -> None:
+        self.log_screen_event("Mounted boot screen.")
         self.refresh_boot()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "refresh-boot":
+            self.log_screen_event("Refresh requested from boot button.")
             self.refresh_boot()
 
     def action_refresh_boot(self) -> None:
+        self.log_screen_event("Refresh requested from boot shortcut.")
         self.refresh_boot()
 
     def refresh_boot(self) -> None:
         try:
-            self.snapshot = self.get_environment(force=True)
+            self.snapshot = self.refresh_environment()
             self.last_error = None
+            self.log_screen_event("Boot environment refresh completed.")
         except Exception as exc:  # pragma: no cover
             self.snapshot = None
             self.last_error = str(exc)
+            self.log_screen_error(f"Boot refresh failed: {exc}")
 
         self._render()
 
@@ -84,6 +89,16 @@ class BootScreen(DBLMSectionScreen):
             snapshots_box.update("No snapshot integration data available.")
             notes_box.update("Refresh the screen after fixing the environment issue.")
             return
+
+        boot = self.snapshot.bootloader
+        self.log_screen_event(
+            "Rendering boot data "
+            f"(detected={safe_text(boot.detected)}, "
+            f"uefi={boot.is_uefi}, "
+            f"grub={boot.has_grub}, "
+            f"bootctl={boot.has_bootctl}, "
+            f"grub_btrfsd={boot.has_grub_btrfsd})."
+        )
 
         status_box.update(self._build_status_text())
         grub_box.update(self._build_grub_text())
