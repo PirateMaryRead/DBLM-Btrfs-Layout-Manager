@@ -47,22 +47,27 @@ class DashboardScreen(DBLMSectionScreen):
             yield InfoCard(id="card-warnings")
 
     def on_mount(self) -> None:
+        self.log_screen_event("Mounted dashboard screen.")
         self.refresh_dashboard()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "refresh-dashboard":
+            self.log_screen_event("Refresh requested from dashboard button.")
             self.refresh_dashboard()
 
     def action_refresh_dashboard(self) -> None:
+        self.log_screen_event("Refresh requested from dashboard shortcut.")
         self.refresh_dashboard()
 
     def refresh_dashboard(self) -> None:
         try:
-            self.snapshot = self.get_environment(force=True)
+            self.snapshot = self.refresh_environment()
             self.last_error = None
+            self.log_screen_event("Dashboard environment refresh completed.")
         except Exception as exc:  # pragma: no cover
             self.snapshot = None
             self.last_error = str(exc)
+            self.log_screen_error(f"Dashboard refresh failed: {exc}")
 
         self._render_cards()
 
@@ -85,6 +90,10 @@ class DashboardScreen(DBLMSectionScreen):
             return
 
         summary = self.state_manager.summarize()
+        self.log_screen_event(
+            f"Rendering dashboard cards (warnings={len(self.snapshot.warnings)}, "
+            f"runs={summary.get('runs_total', 0)}, backups={summary.get('backups_total', 0)})."
+        )
         system_card.update(self._build_system_text(self.snapshot))
         home_card.update(self._build_home_text(self.snapshot))
         boot_card.update(self._build_boot_text(self.snapshot))
