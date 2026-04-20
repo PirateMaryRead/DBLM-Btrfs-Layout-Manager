@@ -4,10 +4,10 @@ import logging
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from threading import RLock
-from typing import Iterable
 
 
-DEFAULT_LOG_DIR = Path("data/logs")
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_LOG_DIR = PROJECT_ROOT / "data" / "logs"
 DEFAULT_LOG_FILE = DEFAULT_LOG_DIR / "dblm.log"
 LOGGER_NAME = "dblm"
 
@@ -36,9 +36,11 @@ class InMemoryLogHandler(logging.Handler):
                 overflow = len(self._records) - self.capacity
                 del self._records[:overflow]
 
-    def clear(self) -> None:
+    def clear(self) -> int:
         with self._lock:
+            cleared = len(self._records)
             self._records.clear()
+            return cleared
 
     def get_lines(self) -> list[str]:
         with self._lock:
@@ -85,7 +87,10 @@ def configure_logging(
             return logger
 
         log_dir_path = Path(log_dir)
+        if not log_dir_path.is_absolute():
+            log_dir_path = PROJECT_ROOT / log_dir_path
         log_dir_path.mkdir(parents=True, exist_ok=True)
+
         log_file_path = Path(log_file)
         if not log_file_path.is_absolute():
             log_file_path = log_dir_path / log_file_path.name
@@ -172,13 +177,12 @@ def tail_log_buffer(limit: int = 200) -> list[str]:
     return get_memory_handler().tail(limit=limit)
 
 
-def clear_log_buffer() -> None:
+def clear_log_buffer() -> int:
     """
-    Clear only the in-memory UI log buffer.
+    Clear only the in-memory UI log buffer and return how many lines were removed.
     """
     handler = get_memory_handler()
-    handler.clear()
-    get_logger("logging").info("In-memory log buffer cleared.")
+    return handler.clear()
 
 
 def append_log_line(
