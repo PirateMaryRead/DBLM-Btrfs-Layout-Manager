@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from textual.widgets import Static
 
+from core.logging import get_logger
 from ui.common import safe_text, yes_no
 
 
@@ -12,6 +13,10 @@ class SummaryBox(Static):
 [bold]DBLM — Btrfs Layout Manager[/bold]
 Interactive TUI for auditing and managing Btrfs layouts on existing Linux installations.
 """.strip()
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.logger = get_logger("ui.summary_box")
 
     def on_mount(self) -> None:
         self.update(self.DEFAULT_TEXT)
@@ -43,7 +48,8 @@ Interactive TUI for auditing and managing Btrfs layouts on existing Linux instal
                 f"Restorable: {state_summary.get('backups_restorable', 0)}"
             )
         except Exception as exc:  # pragma: no cover - defensive UI path
+            self.logger.exception("Failed to refresh summary box.")
             self.update(
                 "[bold]DBLM — Btrfs Layout Manager[/bold]\n"
-                f"Summary refresh failed: {exc}"
+                f"Summary refresh failed: {safe_text(exc)}"
             )
