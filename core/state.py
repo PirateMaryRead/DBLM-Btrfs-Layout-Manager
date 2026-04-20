@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 import tempfile
 import uuid
 from contextlib import contextmanager
@@ -9,6 +10,9 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator, Literal
+
+from core.logging import get_logger
+from core.system import CommandError, run_command
 
 
 DEFAULT_STATE_FILE = Path("data/state.json")
@@ -117,6 +121,7 @@ class StateManager:
         self.state_file = Path(state_file)
         self.state_file.parent.mkdir(parents=True, exist_ok=True)
         self._batch_depth: int = 0
+        self.logger = get_logger("state")
         self.state = self._load()
 
     @contextmanager
@@ -134,6 +139,7 @@ class StateManager:
 
     def _load(self) -> AppState:
         if not self.state_file.exists():
+            self.logger.info("State file not found, creating fresh in-memory state: %s", self.state_file)
             return AppState()
 
         with self.state_file.open("r", encoding="utf-8") as handle:
@@ -159,6 +165,13 @@ class StateManager:
             run_data = dict(raw_run)
             run_data["actions"] = actions
             runs.append(RunRecord(**run_data))
+
+        self.logger.info(
+            "Loaded state from %s (runs=%s, backups=%s).",
+            self.state_file,
+            len(runs),
+            len(backups),
+        )
 
         return AppState(
             version=raw.get("version", 1),
@@ -186,6 +199,7 @@ class StateManager:
             temp_name = handle.name
 
         Path(temp_name).replace(self.state_file)
+        self.logger.info("State saved to %s.", self.state_file)
 
     def new_run(self, notes: str = "") -> RunRecord:
         run = RunRecord(
@@ -195,11 +209,13 @@ class StateManager:
         )
         self.state.runs.append(run)
         self.save()
+        self.logger.info("Created new run: %s", run.run_id)
         return run
 
     def add_run(self, run: RunRecord) -> None:
         self.state.runs.append(run)
         self.save()
+        self.logger.info("Added run record: %s", run.run_id)
 
     def update_run_status(
         self,
@@ -213,16 +229,25 @@ class StateManager:
         if notes is not None:
             run.notes = notes
         self.save()
+        self.logger.info("Updated run %s status to %s.", run_id, status)
 
     def add_warning_to_run(self, run_id: str, warning: str) -> None:
         run = self.require_run(run_id)
         run.warnings.append(warning)
         self.save()
+        self.logger.warning("Added warning to run %s: %s", run_id, warning)
 
     def add_action(self, run_id: str, action: ActionRecord) -> None:
         run = self.require_run(run_id)
         run.actions.append(action)
         self.save()
+        self.logger.info(
+            "Added action to run %s (target=%s, subvolume=%s, status=%s).",
+            run_id,
+            action.target,
+            action.subvolume,
+            action.status,
+        )
 
     def find_action(self, run_id: str, target: str) -> ActionRecord | None:
         run = self.require_run(run_id)
@@ -251,6 +276,12 @@ class StateManager:
         )
         self.state.backups.append(backup)
         self.save()
+        self.logger.info(
+            "Registered backup %s (original=%s, backup=%s).",
+            backup.backup_id,
+            original_path,
+            backup_path,
+        )
         return backup
 
     def list_backups(self, *, include_deleted: bool = False) -> list[BackupRecord]:
@@ -281,12 +312,14 @@ class StateManager:
         backup = self.require_backup(backup_id)
         backup.restored_at = utc_now_iso()
         self.save()
+        self.logger.info("Marked backup as restored: %s", backup_id)
 
     def mark_backup_deleted(self, backup_id: str) -> None:
         backup = self.require_backup(backup_id)
         backup.deleted = True
         backup.deleted_at = utc_now_iso()
         self.save()
+        self.logger.info("Marked backup as deleted: %s", backup_id)
 
     def restore_backup(
         self,
@@ -297,6 +330,9 @@ class StateManager:
     ) -> Path:
         """
         Restore a recorded backup to its original path.
+
+        Uses rsync for directories to preserve more metadata consistently with
+        the migration path.
         """
         backup = self.require_backup(backup_id)
         backup_path = Path(backup.backup_path)
@@ -309,6 +345,13 @@ class StateManager:
         if not backup_path.exists():
             raise FileNotFoundError(f"Backup path does not exist: {backup_path}")
 
+        self.logger.info(
+            "Restoring backup %s to %s (overwrite=%s).",
+            backup_id,
+            original_path,
+            overwrite,
+        )
+
         if original_path.exists():
             if not overwrite:
                 raise FileExistsError(
@@ -319,9 +362,10 @@ class StateManager:
         if create_parent:
             original_path.parent.mkdir(parents=True, exist_ok=True)
 
-        self._copy_path(backup_path, original_path)
+        self._restore_path(backup_path, original_path)
         backup.restored_at = utc_now_iso()
         self.save()
+        self.logger.info("Backup restored successfully: %s", backup_id)
         return original_path
 
     def delete_backup(self, backup_id: str, *, missing_ok: bool = True) -> Path:
@@ -332,6 +376,7 @@ class StateManager:
         backup_path = Path(backup.backup_path)
 
         if backup.deleted:
+            self.logger.info("Backup already marked deleted: %s", backup_id)
             return backup_path
 
         if backup_path.exists():
@@ -342,6 +387,7 @@ class StateManager:
         backup.deleted = True
         backup.deleted_at = utc_now_iso()
         self.save()
+        self.logger.info("Deleted backup: %s", backup_id)
         return backup_path
 
     def delete_backups(self, backup_ids: list[str], *, missing_ok: bool = True) -> list[Path]:
@@ -352,11 +398,13 @@ class StateManager:
         with self.batch():
             for backup_id in backup_ids:
                 deleted_paths.append(self.delete_backup(backup_id, missing_ok=missing_ok))
+        self.logger.info("Deleted %s backup(s) in batch.", len(backup_ids))
         return deleted_paths
 
     def remove_run(self, run_id: str) -> None:
         self.state.runs = [run for run in self.state.runs if run.run_id != run_id]
         self.save()
+        self.logger.info("Removed run: %s", run_id)
 
     def get_latest_run(self) -> RunRecord | None:
         if not self.state.runs:
@@ -378,11 +426,28 @@ class StateManager:
         }
 
     @staticmethod
-    def _copy_path(source: Path, target: Path) -> None:
+    def _restore_path(source: Path, target: Path) -> None:
         if source.is_dir():
-            shutil.copytree(source, target, symlinks=True)
-        else:
-            shutil.copy2(source, target)
+            target.mkdir(parents=True, exist_ok=True)
+            result = run_command(
+                [
+                    "rsync",
+                    "-aHAX",
+                    "--numeric-ids",
+                    f"{source}/",
+                    f"{target}/",
+                ],
+                check=False,
+            )
+            if not result.ok:
+                raise CommandError(
+                    f"rsync failed while restoring {source} -> {target}\n"
+                    f"stdout: {result.stdout}\n"
+                    f"stderr: {result.stderr}"
+                )
+            return
+
+        shutil.copy2(source, target)
 
     @staticmethod
     def _remove_path(path: Path) -> None:
