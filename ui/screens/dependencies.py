@@ -57,22 +57,27 @@ class DependenciesScreen(DBLMSectionScreen):
             yield Static(id="dependencies-notes")
 
     def on_mount(self) -> None:
+        self.log_screen_event("Mounted dependencies screen.")
         self.refresh_dependencies()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "refresh-dependencies":
+            self.log_screen_event("Refresh requested from dependencies button.")
             self.refresh_dependencies()
 
     def action_refresh_dependencies(self) -> None:
+        self.log_screen_event("Refresh requested from dependencies shortcut.")
         self.refresh_dependencies()
 
     def refresh_dependencies(self) -> None:
         try:
-            self.snapshot = self.get_environment(force=True)
+            self.snapshot = self.refresh_environment()
             self.last_error = None
+            self.log_screen_event("Dependencies environment refresh completed.")
         except Exception as exc:  # pragma: no cover
             self.snapshot = None
             self.last_error = str(exc)
+            self.log_screen_error(f"Dependencies refresh failed: {exc}")
 
         self._render()
 
@@ -107,6 +112,14 @@ class DependenciesScreen(DBLMSectionScreen):
         feature_checks = check_packages(feature_requirements)
         feature_summary = summarize_package_checks(feature_checks)
         install_plan = build_install_plan(feature_requirements)
+
+        self.log_screen_event(
+            "Rendering dependencies data "
+            f"(core_missing={len(core_summary.get('missing_required', []))}, "
+            f"feature_missing_required={len(feature_summary.get('missing_required', []))}, "
+            f"feature_missing_optional={len(feature_summary.get('missing_optional', []))}, "
+            f"to_install={len(install_plan.to_install)})."
+        )
 
         apt_box.update(self._build_apt_text(apt_status))
         core_box.update(self._build_core_text(core_summary))
