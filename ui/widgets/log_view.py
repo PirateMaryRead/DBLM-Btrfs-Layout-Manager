@@ -11,12 +11,22 @@ from textual.widgets import Static
 class LogEntry:
     """A single log line rendered by the UI."""
 
-    level: str
-    message: str
+    level: str = "info"
+    message: str = ""
     timestamp: str = field(default_factory=lambda: datetime.now().strftime("%H:%M:%S"))
     source: str = "app"
+    raw_line: str | None = None
 
     def render(self) -> str:
+        """
+        Render the entry.
+
+        When raw_line is present, it is returned exactly as received. This is
+        important for application and operation logs that are already formatted.
+        """
+        if self.raw_line is not None:
+            return self.raw_line
+
         level = self.level.upper().strip() or "INFO"
         source = self.source.strip() or "app"
 
@@ -41,6 +51,7 @@ class LogView(Static):
     - append/extend behavior
     - console-style rendering
     - optional title/subtitle/status line
+    - pre-rendered log lines from logging backends
     """
 
     def __init__(
@@ -87,7 +98,7 @@ class LogView(Static):
         source: str = "app",
         timestamp: str | None = None,
     ) -> None:
-        """Append a new log line and refresh the widget."""
+        """Append a new structured log line and refresh the widget."""
         self.entries.append(
             LogEntry(
                 level=level,
@@ -99,6 +110,15 @@ class LogView(Static):
         self._trim()
         self.refresh_log()
 
+    def append_raw(self, line: str) -> None:
+        """Append a pre-rendered log line without modifying its format."""
+        text = str(line).rstrip()
+        if not text:
+            return
+        self.entries.append(LogEntry(raw_line=text))
+        self._trim()
+        self.refresh_log()
+
     def extend(
         self,
         messages: Iterable[str],
@@ -106,13 +126,13 @@ class LogView(Static):
         level: str = "info",
         source: str = "app",
     ) -> None:
-        """Append multiple plain log lines."""
+        """Append multiple structured log lines."""
         now = datetime.now().strftime("%H:%M:%S")
         for message in messages:
             self.entries.append(
                 LogEntry(
                     level=level,
-                    message=message,
+                    message=str(message),
                     source=source,
                     timestamp=now,
                 )
@@ -131,7 +151,8 @@ class LogView(Static):
         """
         Load already-rendered log lines from a logging backend.
 
-        Useful for displaying the app's in-memory log buffer or a log file.
+        These lines are preserved exactly as they arrive, which avoids adding a
+        second timestamp/level prefix on top of logger output.
         """
         if clear_first:
             self.entries.clear()
@@ -140,14 +161,7 @@ class LogView(Static):
             text = str(line).rstrip()
             if not text:
                 continue
-            self.entries.append(
-                LogEntry(
-                    level=level,
-                    message=text,
-                    source=source,
-                    timestamp="--:--:--",
-                )
-            )
+            self.entries.append(LogEntry(raw_line=text, source=source, level=level))
 
         self._trim()
         self.refresh_log()
@@ -180,9 +194,12 @@ class LogView(Static):
         return len(self.entries)
 
     def summary(self) -> dict[str, int]:
-        """Return counts grouped by normalized level."""
+        """Return counts grouped by normalized level for structured entries."""
         counts: dict[str, int] = {}
         for entry in self.entries:
+            if entry.raw_line is not None:
+                counts["RAW"] = counts.get("RAW", 0) + 1
+                continue
             level = entry.level.upper()
             counts[level] = counts.get(level, 0) + 1
         return counts
