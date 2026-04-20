@@ -259,10 +259,11 @@ Button {
 #logs-view {
     height: 1fr;
     border: round $primary;
-    background: $panel-darken-1;
+    background: $surface;
     color: $text;
     padding: 1;
     overflow: auto;
+    content-align: left top;
 }
 
 /* Make bottom notes readable */
