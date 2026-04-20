@@ -7,10 +7,10 @@ from textual.containers import Horizontal, Vertical
 from textual.widgets import Button, Static
 
 from core.system import EnvironmentSnapshot
-from ui.common import DBLMScreen, safe_text
+from ui.common import DBLMSectionScreen, safe_text
 
 
-class RollbackScreen(DBLMScreen):
+class RollbackScreen(DBLMSectionScreen):
     BINDINGS = [("r", "refresh_rollback", "Refresh")]
 
     def __init__(self, state_file: str | Path = "data/state.json") -> None:
@@ -18,7 +18,7 @@ class RollbackScreen(DBLMScreen):
         self.snapshot: EnvironmentSnapshot | None = None
         self.last_error: str | None = None
 
-    def compose(self) -> ComposeResult:
+    def compose_body(self) -> ComposeResult:
         with Vertical(id="rollback-root"):
             yield Static("[bold]Revert[/bold]", id="rollback-title")
             yield Static(
