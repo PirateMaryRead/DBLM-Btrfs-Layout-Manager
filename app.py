@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 
 from textual.app import App, ComposeResult
@@ -15,7 +17,7 @@ from core.logging import (
 )
 from core.state import StateManager
 from core.system import EnvironmentSnapshot, scan_environment
-from ui.common import DBLMSectionScreen, DEFAULT_UI_STATE_FILE, HelpScreen
+from ui.common import DBLMSectionScreen, HelpScreen
 from ui.screens.apply import ApplyScreen
 from ui.screens.backups import BackupsScreen
 from ui.screens.boot import BootScreen
@@ -76,6 +78,40 @@ SECTION_PREVIEWS = {
     "Logs": "Show global application logs and future operation logs in a console-like view.",
     "Help": "Show keyboard shortcuts and navigation help.",
 }
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _operation_line(level: str, message: str, *, source: str = "operation") -> str:
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    normalized_level = (level or "info").upper()
+    return f"[{timestamp}] [{normalized_level}] {source}: {message}"
+
+
+@dataclass(slots=True)
+class OperationLogSession:
+    """Tracks one operation-oriented log stream for installer-style output."""
+
+    name: str = ""
+    status: str = "idle"
+    started_at: str | None = None
+    finished_at: str | None = None
+    success: bool | None = None
+    lines: list[str] = field(default_factory=list)
+
+    @property
+    def is_active(self) -> bool:
+        return self.status == "running"
+
+    def clear(self) -> None:
+        self.name = ""
+        self.status = "idle"
+        self.started_at = None
+        self.finished_at = None
+        self.success = None
+        self.lines.clear()
 
 
 class MainMenuScreen(DBLMSectionScreen):
@@ -235,6 +271,8 @@ class DBLMApp(App[None]):
         self._environment_cache: EnvironmentSnapshot | None = None
         configure_logging()
         self.dblm_logger = get_logger("app")
+        self.operation_logger = get_logger("operation")
+        self._operation_log = OperationLogSession()
         self.dblm_logger.info("DBLM application initialized.")
         self.dblm_logger.info("Using state file: %s", self.state_file)
 
@@ -328,12 +366,132 @@ class DBLMApp(App[None]):
         self._environment_cache = None
 
     def get_log_entries(self, *, limit: int = 500) -> list[str]:
-        """Return recent log entries for the UI."""
+        """Return recent global log entries for the UI."""
         return tail_log_buffer(limit=limit)
 
     def clear_logs(self) -> int:
-        """Clear the in-memory UI log buffer and return the number of removed lines."""
+        """Clear the in-memory global UI log buffer and return removed line count."""
         return clear_log_buffer()
+
+    # ------------------------------------------------------------------ #
+    # Operation log API                                                   #
+    # ------------------------------------------------------------------ #
+
+    def start_operation_log(self, name: str, *, reset: bool = True) -> None:
+        """
+        Start a new installer-style operation log session.
+        """
+        if reset:
+            self._operation_log.clear()
+
+        self._operation_log.name = name.strip() or "operation"
+        self._operation_log.status = "running"
+        self._operation_log.started_at = _utc_now_iso()
+        self._operation_log.finished_at = None
+        self._operation_log.success = None
+
+        self.operation_logger.info("Started operation log session: %s", self._operation_log.name)
+        self.append_operation_log(
+            f"Starting operation: {self._operation_log.name}",
+            level="info",
+            source="operation",
+        )
+
+    def append_operation_log(
+        self,
+        message: str,
+        *,
+        level: str = "info",
+        source: str = "operation",
+    ) -> None:
+        """
+        Append a line to the current operation log buffer and also mirror it to
+        the regular logger namespace.
+        """
+        line = _operation_line(level, message, source=source)
+        self._operation_log.lines.append(line)
+
+        normalized = level.lower().strip()
+        if normalized in {"warn", "warning"}:
+            self.operation_logger.warning("%s: %s", source, message)
+        elif normalized in {"error", "critical"}:
+            self.operation_logger.error("%s: %s", source, message)
+        else:
+            self.operation_logger.info("%s: %s", source, message)
+
+    def finish_operation_log(
+        self,
+        *,
+        success: bool,
+        message: str | None = None,
+    ) -> None:
+        """
+        Finish the current operation log session.
+        """
+        self._operation_log.status = "success" if success else "failed"
+        self._operation_log.finished_at = _utc_now_iso()
+        self._operation_log.success = success
+
+        final_message = message or (
+            "Operation completed successfully."
+            if success
+            else "Operation finished with errors."
+        )
+        self.append_operation_log(
+            final_message,
+            level="info" if success else "error",
+            source="operation",
+        )
+        self.operation_logger.info(
+            "Finished operation log session: %s (success=%s)",
+            self._operation_log.name or "operation",
+            success,
+        )
+
+    def clear_operation_log(self) -> None:
+        """Clear the installer-style operation log buffer."""
+        self._operation_log.clear()
+        self.operation_logger.info("Operation log buffer cleared.")
+
+    def get_operation_log_entries(self, *, limit: int = 1000) -> list[str]:
+        """Return recent installer-style operation log lines."""
+        if limit <= 0:
+            return []
+        return self._operation_log.lines[-limit:]
+
+    def get_operation_log_status(self) -> dict[str, object]:
+        """Return metadata about the current operation log session."""
+        return {
+            "name": self._operation_log.name,
+            "status": self._operation_log.status,
+            "started_at": self._operation_log.started_at,
+            "finished_at": self._operation_log.finished_at,
+            "success": self._operation_log.success,
+            "line_count": len(self._operation_log.lines),
+            "is_active": self._operation_log.is_active,
+        }
+
+    def has_operation_log(self) -> bool:
+        """Return True if an operation session exists or has buffered lines."""
+        return bool(self._operation_log.name or self._operation_log.lines)
+
+    def open_operation_logs(self, operation_name: str | None = None) -> None:
+        """
+        Open the logs screen directly in operation mode.
+        """
+        self.dblm_logger.info(
+            "Opening logs screen in operation mode (operation=%s).",
+            operation_name or self._operation_log.name or "operation",
+        )
+        while len(self.screen_stack) > 1:
+            self.pop_screen()
+        self.push_screen(
+            LogsScreen(
+                state_file=self.state_file,
+                mode="operation",
+                operation_name=operation_name or self._operation_log.name or "operation",
+            )
+        )
 
     def _refresh_main_menu_summary_if_visible(self) -> None:
         if isinstance(self.screen, MainMenuScreen):
