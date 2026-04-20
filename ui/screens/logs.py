@@ -8,7 +8,7 @@ from textual.reactive import reactive
 from textual.widgets import Button, Static
 
 from core.logging import tail_log_buffer, tail_log_file
-from ui.common import DBLMSectionScreen, safe_text
+from ui.common import DBLMSectionScreen, DEFAULT_UI_STATE_FILE, safe_text
 from ui.widgets.log_view import LogView
 
 
@@ -31,7 +31,7 @@ class LogsScreen(DBLMSectionScreen):
 
     def __init__(
         self,
-        state_file: str | Path = "data/state.json",
+        state_file: str | Path = DEFAULT_UI_STATE_FILE,
         *,
         mode: str = "app",
         operation_name: str | None = None,
@@ -40,6 +40,7 @@ class LogsScreen(DBLMSectionScreen):
         self.mode = mode
         self.operation_name = operation_name
         self.last_error: str | None = None
+        self.status_notice: str | None = None
 
     def compose_body(self) -> ComposeResult:
         with Vertical(id="logs-root"):
@@ -71,23 +72,36 @@ class LogsScreen(DBLMSectionScreen):
             self.action_toggle_source()
 
     def action_refresh_logs(self) -> None:
+        self.status_notice = "Log view refreshed."
         self.refresh_logs()
 
     def action_clear_logs(self) -> None:
         app = getattr(self, "app", None)
+        cleared = 0
         if app is not None and hasattr(app, "clear_logs"):
-            app.clear_logs()
-        self.log_screen_event("Log buffer clear requested from logs screen.")
+            cleared = app.clear_logs()
+
+        if self.source_mode == "file":
+            self.status_notice = (
+                f"Cleared {cleared} in-memory log line(s). Persistent file view is unchanged."
+            )
+        else:
+            self.status_notice = f"Cleared {cleared} in-memory log line(s)."
+
         self.refresh_logs()
 
     def action_toggle_source(self) -> None:
         self.source_mode = "file" if self.source_mode == "memory" else "memory"
+        self.status_notice = f"Switched log source to {self.source_mode}."
         self.log_screen_event(f"Logs source switched to {self.source_mode}.")
         self.refresh_logs()
 
     def watch_source_mode(self, source_mode: str) -> None:
-        status = self.query_one("#logs-status", Static)
-        status.update(self._build_status_text(source_mode))
+        try:
+            status = self.query_one("#logs-status", Static)
+            status.update(self._build_status_text(source_mode))
+        except Exception:
+            pass
 
     def refresh_logs(self) -> None:
         status = self.query_one("#logs-status", Static)
@@ -114,6 +128,7 @@ class LogsScreen(DBLMSectionScreen):
             self.last_error = None
         except Exception as exc:  # pragma: no cover
             self.last_error = str(exc)
+            self.log_screen_error(f"Logs refresh failed: {exc}")
             status.update(self._build_status_text(self.source_mode))
             log_view.set_status("Failed to load logs.")
             log_view.load_rendered_lines(
@@ -143,17 +158,21 @@ class LogsScreen(DBLMSectionScreen):
         return f"Source mode: {self.source_mode}"
 
     def _build_status_text(self, source_mode: str) -> str:
-        error_text = ""
-        if self.last_error:
-            error_text = f"\nLast error: {safe_text(self.last_error)}"
+        lines = [
+            "[bold]Log source[/bold]",
+            "",
+            f"Mode: {self.mode}",
+            f"Source: {source_mode}",
+            "Shortcuts:",
+            "- R refresh",
+            "- C clear in-memory buffer",
+            "- T toggle memory/file",
+        ]
 
-        return (
-            "[bold]Log source[/bold]\n\n"
-            f"Mode: {self.mode}\n"
-            f"Source: {source_mode}\n"
-            "Shortcuts:\n"
-            "- R refresh\n"
-            "- C clear in-memory buffer\n"
-            "- T toggle memory/file"
-            f"{error_text}"
-        )
+        if self.status_notice:
+            lines.extend(["", f"Notice: {safe_text(self.status_notice)}"])
+
+        if self.last_error:
+            lines.extend(["", f"Last error: {safe_text(self.last_error)}"])
+
+        return "\n".join(lines)
