@@ -48,22 +48,27 @@ class BackupsScreen(DBLMSectionScreen):
             yield Static(id="backups-notes")
 
     def on_mount(self) -> None:
+        self.log_screen_event("Mounted backups screen.")
         self.refresh_backups()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "refresh-backups":
+            self.log_screen_event("Refresh requested from backups button.")
             self.refresh_backups()
 
     def action_refresh_backups(self) -> None:
+        self.log_screen_event("Refresh requested from backups shortcut.")
         self.refresh_backups()
 
     def refresh_backups(self) -> None:
         try:
-            self.snapshot = self.get_environment(force=True)
+            self.snapshot = self.refresh_environment()
             self.last_error = None
+            self.log_screen_event("Backups environment refresh completed.")
         except Exception as exc:  # pragma: no cover
             self.snapshot = None
             self.last_error = str(exc)
+            self.log_screen_error(f"Backups refresh failed: {exc}")
 
         self._render()
 
@@ -88,6 +93,12 @@ class BackupsScreen(DBLMSectionScreen):
         all_backups = self.state_manager.list_backups(include_deleted=True)
         deleted = [item for item in all_backups if item.deleted]
         restorable = self.state_manager.list_restorable_backups()
+
+        self.log_screen_event(
+            "Rendering backups data "
+            f"(available={len(available)}, restorable={len(restorable)}, deleted={len(deleted)}, "
+            f"total={summary.get('backups_total', 0)})."
+        )
 
         summary_box.update(self._build_summary_text(summary))
         available_box.update(self._build_available_text(available))
