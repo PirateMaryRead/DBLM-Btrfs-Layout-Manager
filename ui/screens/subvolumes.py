@@ -18,10 +18,10 @@ from core.profiles import (
     resolve_profile_targets,
 )
 from core.system import EnvironmentSnapshot
-from ui.common import DBLMScreen, safe_text, yes_no
+from ui.common import DBLMSectionScreen, safe_text, yes_no
 
 
-class SubvolumeScreen(DBLMScreen):
+class SubvolumeScreen(DBLMSectionScreen):
     """Subvolume planning screen."""
 
     BINDINGS = [
@@ -39,7 +39,7 @@ class SubvolumeScreen(DBLMScreen):
         self.last_error: str | None = None
         self.selected_keys: set[str] = set()
 
-    def compose(self) -> ComposeResult:
+    def compose_body(self) -> ComposeResult:
         with Vertical(id="subvolumes-root"):
             yield Static("[bold]Subvolumes[/bold]", id="subvolumes-title")
             yield Static(
