@@ -1,14 +1,27 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 import shutil
 
+from core.logging import get_logger
+
 
 DEFAULT_FSTAB_PATH = Path("/etc/fstab")
 MANAGED_COMMENT_PREFIX = "# DBLM:"
 MIGRATED_COMMENT_PREFIX = "# DBLM-MIGRATED:"
+
+OperationLogger = Callable[[str, str, str], None]
+
+
+def _noop_operation_logger(message: str, level: str = "info", source: str = "fstab") -> None:
+    """Default operation logger used when no callback is provided."""
+    return None
+
+
+LOGGER = get_logger("fstab")
 
 
 @dataclass(slots=True)
@@ -106,6 +119,7 @@ def read_fstab(path: str | Path = DEFAULT_FSTAB_PATH) -> list[FstabEntry]:
     if not fstab_path.exists():
         raise FileNotFoundError(f"fstab not found: {fstab_path}")
 
+    LOGGER.info("Reading fstab from %s", fstab_path)
     with fstab_path.open("r", encoding="utf-8") as handle:
         return [parse_fstab_line(line) for line in handle.readlines()]
 
@@ -120,25 +134,38 @@ def write_fstab(
     *,
     path: str | Path = DEFAULT_FSTAB_PATH,
     create_backup: bool = True,
+    operation_log: OperationLogger | None = None,
 ) -> str | None:
     """Write the full fstab and optionally create a timestamped backup first."""
+    log = operation_log or _noop_operation_logger
     fstab_path = Path(path)
     backup_path: str | None = None
 
+    LOGGER.info("Writing fstab to %s (create_backup=%s)", fstab_path, create_backup)
+    log(f"Writing fstab to {fstab_path}", "info", "fstab")
+
     if create_backup and fstab_path.exists():
-        backup = backup_fstab(fstab_path)
+        backup = backup_fstab(fstab_path, operation_log=operation_log)
         backup_path = str(backup)
 
     with fstab_path.open("w", encoding="utf-8") as handle:
         handle.write(render_fstab(entries))
 
+    log("fstab write completed.", "info", "fstab")
     return backup_path
 
 
-def backup_fstab(path: str | Path = DEFAULT_FSTAB_PATH) -> Path:
+def backup_fstab(
+    path: str | Path = DEFAULT_FSTAB_PATH,
+    *,
+    operation_log: OperationLogger | None = None,
+) -> Path:
     """Create a timestamped backup of fstab."""
+    log = operation_log or _noop_operation_logger
     fstab_path = Path(path)
     backup_path = fstab_path.with_name(f"{fstab_path.name}.bak.{utc_stamp()}")
+    LOGGER.info("Creating fstab backup: %s -> %s", fstab_path, backup_path)
+    log(f"Creating fstab backup at {backup_path}", "info", "fstab")
     shutil.copy2(fstab_path, backup_path)
     return backup_path
 
@@ -147,23 +174,36 @@ def restore_fstab_backup(
     backup_path: str | Path,
     *,
     path: str | Path = DEFAULT_FSTAB_PATH,
+    operation_log: OperationLogger | None = None,
 ) -> Path:
     """Restore a previously created fstab backup."""
+    log = operation_log or _noop_operation_logger
     source = Path(backup_path)
     target = Path(path)
 
     if not source.exists():
         raise FileNotFoundError(f"fstab backup not found: {source}")
 
+    LOGGER.info("Restoring fstab backup: %s -> %s", source, target)
+    log(f"Restoring fstab backup from {source}", "warning", "fstab")
     shutil.copy2(source, target)
+    log("fstab backup restored.", "info", "fstab")
     return target
 
 
-def delete_fstab_backup(backup_path: str | Path, *, missing_ok: bool = True) -> Path:
+def delete_fstab_backup(
+    backup_path: str | Path,
+    *,
+    missing_ok: bool = True,
+    operation_log: OperationLogger | None = None,
+) -> Path:
     """Delete a previously created fstab backup."""
+    log = operation_log or _noop_operation_logger
     backup = Path(backup_path)
     if backup.exists():
+        LOGGER.info("Deleting fstab backup: %s", backup)
         backup.unlink()
+        log(f"Deleted fstab backup {backup}", "info", "fstab")
     elif not missing_ok:
         raise FileNotFoundError(f"fstab backup not found: {backup}")
     return backup
@@ -189,6 +229,8 @@ def detect_conflicts(entries: list[FstabEntry]) -> list[FstabConflict]:
                 )
             )
 
+    if conflicts:
+        LOGGER.warning("Detected %s fstab conflict(s).", len(conflicts))
     return conflicts
 
 
@@ -239,12 +281,14 @@ def comment_out_mountpoint(
     mountpoint: str,
     *,
     only_active: bool = True,
+    operation_log: OperationLogger | None = None,
 ) -> list[str]:
     """
     Comment out all matching entries for a mountpoint.
 
     Returns the list of original lines that were commented.
     """
+    log = operation_log or _noop_operation_logger
     commented: list[str] = []
 
     for index, entry in enumerate(entries):
@@ -261,15 +305,25 @@ def comment_out_mountpoint(
             is_blank=False,
         )
 
+    if commented:
+        LOGGER.info("Commented out %s fstab line(s) for mountpoint %s", len(commented), mountpoint)
+        log(f"Commented existing fstab entries for {mountpoint}", "warning", "fstab")
+
     return commented
 
 
-def remove_mountpoint(entries: list[FstabEntry], mountpoint: str) -> list[str]:
+def remove_mountpoint(
+    entries: list[FstabEntry],
+    mountpoint: str,
+    *,
+    operation_log: OperationLogger | None = None,
+) -> list[str]:
     """
     Remove all active entries for a mountpoint.
 
     Returns the removed raw lines.
     """
+    log = operation_log or _noop_operation_logger
     removed: list[str] = []
     kept: list[FstabEntry] = []
 
@@ -280,12 +334,26 @@ def remove_mountpoint(entries: list[FstabEntry], mountpoint: str) -> list[str]:
         kept.append(entry)
 
     entries[:] = kept
+
+    if removed:
+        LOGGER.info("Removed %s fstab line(s) for mountpoint %s", len(removed), mountpoint)
+        log(f"Removed active fstab entries for {mountpoint}", "warning", "fstab")
+
     return removed
 
 
-def append_entry(entries: list[FstabEntry], entry: FstabEntry) -> None:
+def append_entry(
+    entries: list[FstabEntry],
+    entry: FstabEntry,
+    *,
+    operation_log: OperationLogger | None = None,
+) -> None:
     """Append an entry to the in-memory fstab list."""
+    log = operation_log or _noop_operation_logger
     entries.append(entry)
+    LOGGER.info("Appended fstab entry for mountpoint %s", entry.mountpoint or "<comment>")
+    if entry.mountpoint:
+        log(f"Appended new fstab entry for {entry.mountpoint}", "info", "fstab")
 
 
 def ensure_mount_entry(
@@ -296,6 +364,7 @@ def ensure_mount_entry(
     subvolume: str,
     options: str = "defaults,noatime,space_cache=v2,compress=zstd,dblm-managed",
     comment_existing: bool = True,
+    operation_log: OperationLogger | None = None,
 ) -> FstabMutationResult:
     """
     Ensure a DBLM-managed Btrfs mount entry exists for a mountpoint.
@@ -303,9 +372,18 @@ def ensure_mount_entry(
     If active entries already exist for the same mountpoint, they may be commented
     out first.
     """
+    log = operation_log or _noop_operation_logger
     added_lines: list[str] = []
     commented_lines: list[str] = []
     removed_lines: list[str] = []
+
+    LOGGER.info(
+        "Ensuring mount entry for mountpoint=%s subvolume=%s comment_existing=%s",
+        mountpoint,
+        subvolume,
+        comment_existing,
+    )
+    log(f"Ensuring fstab entry for {mountpoint} -> /{subvolume}", "info", "fstab")
 
     current_indexes = find_entries_for_mountpoint(entries, mountpoint)
     desired_entry = build_btrfs_entry(
@@ -318,6 +396,7 @@ def ensure_mount_entry(
     for index in current_indexes:
         current = entries[index]
         if current.raw == desired_entry.raw:
+            log(f"Desired fstab entry for {mountpoint} already exists.", "info", "fstab")
             return FstabMutationResult(
                 backup_path=None,
                 added_lines=[],
@@ -326,19 +405,28 @@ def ensure_mount_entry(
             )
 
     if current_indexes and comment_existing:
-        commented_lines = comment_out_mountpoint(entries, mountpoint)
+        commented_lines = comment_out_mountpoint(
+            entries,
+            mountpoint,
+            operation_log=operation_log,
+        )
     elif current_indexes:
-        removed_lines = remove_mountpoint(entries, mountpoint)
+        removed_lines = remove_mountpoint(
+            entries,
+            mountpoint,
+            operation_log=operation_log,
+        )
 
     managed_comment = FstabEntry(
         raw=f"{MANAGED_COMMENT_PREFIX} mountpoint={mountpoint} subvolume={subvolume}",
         is_comment=True,
         is_blank=False,
     )
-    append_entry(entries, managed_comment)
-    append_entry(entries, desired_entry)
+    append_entry(entries, managed_comment, operation_log=operation_log)
+    append_entry(entries, desired_entry, operation_log=operation_log)
     added_lines.extend([managed_comment.raw, desired_entry.raw])
 
+    log(f"Prepared managed fstab entry for {mountpoint}.", "info", "fstab")
     return FstabMutationResult(
         backup_path=None,
         added_lines=added_lines,
@@ -350,12 +438,15 @@ def ensure_mount_entry(
 def restore_commented_mountpoint(
     entries: list[FstabEntry],
     mountpoint: str,
+    *,
+    operation_log: OperationLogger | None = None,
 ) -> int:
     """
     Restore lines previously commented by DBLM for a mountpoint.
 
     Returns the number of restored lines.
     """
+    log = operation_log or _noop_operation_logger
     restored = 0
 
     for index, entry in enumerate(entries):
@@ -370,13 +461,23 @@ def restore_commented_mountpoint(
             entries[index] = parsed
             restored += 1
 
+    if restored:
+        LOGGER.info("Restored %s commented fstab line(s) for mountpoint %s", restored, mountpoint)
+        log(f"Restored {restored} commented fstab entry/entries for {mountpoint}", "info", "fstab")
+
     return restored
 
 
-def remove_dblm_managed_entry(entries: list[FstabEntry], mountpoint: str) -> list[str]:
+def remove_dblm_managed_entry(
+    entries: list[FstabEntry],
+    mountpoint: str,
+    *,
+    operation_log: OperationLogger | None = None,
+) -> list[str]:
     """
     Remove DBLM-managed comment markers and active mount entries for a mountpoint.
     """
+    log = operation_log or _noop_operation_logger
     removed: list[str] = []
     kept: list[FstabEntry] = []
 
@@ -393,20 +494,43 @@ def remove_dblm_managed_entry(entries: list[FstabEntry], mountpoint: str) -> lis
         kept.append(entry)
 
     entries[:] = kept
+
+    if removed:
+        LOGGER.info("Removed %s DBLM-managed fstab line(s) for mountpoint %s", len(removed), mountpoint)
+        log(f"Removed DBLM-managed fstab entries for {mountpoint}", "warning", "fstab")
+
     return removed
 
 
-def revert_mountpoint_change(entries: list[FstabEntry], mountpoint: str) -> FstabMutationResult:
+def revert_mountpoint_change(
+    entries: list[FstabEntry],
+    mountpoint: str,
+    *,
+    operation_log: OperationLogger | None = None,
+) -> FstabMutationResult:
     """
     Revert a mountpoint change by removing DBLM-managed lines and restoring old ones.
     """
-    removed_lines = remove_dblm_managed_entry(entries, mountpoint)
-    restored_count = restore_commented_mountpoint(entries, mountpoint)
+    log = operation_log or _noop_operation_logger
+    LOGGER.info("Reverting fstab mountpoint change for %s", mountpoint)
+    log(f"Reverting fstab changes for {mountpoint}", "warning", "fstab")
+
+    removed_lines = remove_dblm_managed_entry(
+        entries,
+        mountpoint,
+        operation_log=operation_log,
+    )
+    restored_count = restore_commented_mountpoint(
+        entries,
+        mountpoint,
+        operation_log=operation_log,
+    )
 
     commented_lines: list[str] = []
     if restored_count:
         commented_lines.append(f"restored={restored_count}")
 
+    log(f"fstab revert completed for {mountpoint}", "info", "fstab")
     return FstabMutationResult(
         backup_path=None,
         added_lines=[],
