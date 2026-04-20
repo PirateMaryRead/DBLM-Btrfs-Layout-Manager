@@ -7,10 +7,10 @@ from textual.containers import Horizontal, Vertical
 from textual.widgets import Button, Static
 
 from core.system import EnvironmentSnapshot, command_exists, run_command
-from ui.common import DBLMScreen, safe_text, yes_no
+from ui.common import DBLMSectionScreen, safe_text, yes_no
 
 
-class SnapperScreen(DBLMScreen):
+class SnapperScreen(DBLMSectionScreen):
     """Snapper inspection screen for DBLM."""
 
     BINDINGS = [("r", "refresh_snapper", "Refresh")]
@@ -20,7 +20,7 @@ class SnapperScreen(DBLMScreen):
         self.snapshot: EnvironmentSnapshot | None = None
         self.last_error: str | None = None
 
-    def compose(self) -> ComposeResult:
+    def compose_body(self) -> ComposeResult:
         with Vertical(id="snapper-root"):
             yield Static("[bold]Snapper[/bold]", id="snapper-title")
             yield Static(
