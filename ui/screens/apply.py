@@ -48,22 +48,27 @@ class ApplyScreen(DBLMSectionScreen):
             yield Static(id="apply-notes")
 
     def on_mount(self) -> None:
+        self.log_screen_event("Mounted apply screen.")
         self.refresh_apply()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "refresh-apply":
+            self.log_screen_event("Refresh requested from apply button.")
             self.refresh_apply()
 
     def action_refresh_apply(self) -> None:
+        self.log_screen_event("Refresh requested from apply shortcut.")
         self.refresh_apply()
 
     def refresh_apply(self) -> None:
         try:
-            self.snapshot = self.get_environment(force=True)
+            self.snapshot = self.refresh_environment()
             self.last_error = None
+            self.log_screen_event("Apply environment refresh completed.")
         except Exception as exc:  # pragma: no cover
             self.snapshot = None
             self.last_error = str(exc)
+            self.log_screen_error(f"Apply refresh failed: {exc}")
 
         self._render()
 
@@ -87,6 +92,14 @@ class ApplyScreen(DBLMSectionScreen):
 
         summary = self.state_manager.summarize()
         latest_run = self.state_manager.get_latest_run()
+
+        self.log_screen_event(
+            "Rendering apply data "
+            f"(latest_run={'yes' if latest_run is not None else 'no'}, "
+            f"actions={len(latest_run.actions) if latest_run else 0}, "
+            f"warnings={len(self.snapshot.warnings)}, "
+            f"backups={summary.get('backups_total', 0)})."
+        )
 
         readiness_box.update(self._build_readiness_text())
         plan_box.update(self._build_plan_text(latest_run))
